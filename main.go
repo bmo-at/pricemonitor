@@ -1,15 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/chromedp"
+	"github.com/samber/lo"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -70,31 +72,28 @@ func collect_prices(rx <-chan PriceSample, db *gorm.DB) {
 }
 
 func scrape_price(url string, tx chan<- PriceSample) {
-	resp, err := http.Get(url)
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
 
-	if err != nil {
-		panic(err)
-	}
-
-	if resp.StatusCode != 200 {
-		log.Fatalf("status code error: %d %s", resp.StatusCode, resp.Status)
-	}
-
-	defer resp.Body.Close()
-
-	document, err := goquery.NewDocumentFromReader(resp.Body)
-
+	var address string
+	var geolocation string
+	var fuel_name_nodes []*cdp.Node
+	var fuel_price_nodes []*cdp.Node
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.Text(`.station-page-details__value[aria-labelledby=details-address]`, &address, chromedp.NodeVisible),
+		chromedp.Text(`.station-page-details__value[aria-labelledby=details-lat_lng]`, &geolocation, chromedp.NodeVisible),
+		chromedp.Nodes(`.station-page-fuel-prices__fuel-name`, &fuel_name_nodes, chromedp.NodeVisible),
+		chromedp.Nodes(`.station-page-fuel-prices__fuel-price`, &fuel_price_nodes, chromedp.NodeVisible),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	address := document.Find(".station-page-details__value[aria-labelledby=details-address]").Nodes[0].FirstChild.Data
-	geolocation := document.Find(".station-page-details__value[aria-labelledby=details-lat_lng]").Nodes[0].FirstChild.Data
+	zipped_nodes := lo.Zip2(fuel_name_nodes, fuel_price_nodes)
 
-	prices := make(map[string]float32)
-
-	for _, node := range document.Find(".station-page-fuel-prices__table-row").Nodes {
-		trimmed := strings.TrimPrefix(strings.TrimSuffix(node.LastChild.FirstChild.Data, "/L"), "€")
+	prices := lo.SliceToMap(zipped_nodes, func(t lo.Tuple2[*cdp.Node, *cdp.Node]) (string, float32) {
+		trimmed := strings.TrimPrefix(strings.TrimSuffix(t.B.Children[len(t.B.Children)-1].NodeValue, "/L"), "€")
 
 		price, err := strconv.ParseFloat(trimmed, 32)
 
@@ -102,8 +101,8 @@ func scrape_price(url string, tx chan<- PriceSample) {
 			fmt.Printf("Error while parsing price: %s", err.Error())
 		}
 
-		prices[node.FirstChild.FirstChild.Data] = float32(price)
-	}
+		return t.A.Children[len(t.A.Children)-1].NodeValue, float32(price)
+	})
 
 	price_sample := PriceSample{
 		Prices:      prices,
