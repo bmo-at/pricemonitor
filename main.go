@@ -79,7 +79,7 @@ func collect_prices(rx <-chan PriceSample, db *gorm.DB) {
 	for {
 		sample := <-rx
 		for name, price := range sample.Prices {
-			db.Raw("INSERT INTO 'pricemonitor' ('fuel_name','price','time','address','geo_location','id') VALUES ('?,?,?,?,?,?)", name, price, sample.Time, sample.Address, sample.GeoLocation, sample.Id)
+			db.Exec("INSERT INTO 'pricemonitor' ('fuel_name','price','time','address','geo_location','id') VALUES (?,?,?,?,?,?)", name, price, sample.Time, sample.Address, sample.GeoLocation, sample.Id)
 		}
 	}
 }
