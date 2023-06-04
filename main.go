@@ -174,7 +174,11 @@ func init_db() *gorm.DB {
 		log.Fatalf("failed to connect to database: %v", err.Error())
 	}
 
-	db.AutoMigrate(&PriceDbEntry{})
+	err = db.AutoMigrate(&PriceDbEntry{})
+
+	if err != nil {
+		log.Fatalf("failed to automigrate database: %s", err.Error())
+	}
 
 	var tables []struct {
 		Name string
