@@ -11,6 +11,7 @@ import (
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -21,6 +22,7 @@ type PriceSample struct {
 	Time        time.Time
 	Address     string
 	GeoLocation string
+	Id          uuid.UUID
 }
 
 type PriceDbEntry struct {
@@ -29,6 +31,7 @@ type PriceDbEntry struct {
 	Time        time.Time
 	Address     string
 	GeoLocation string
+	Id          uuid.UUID `gorm:"type:uuid"`
 }
 
 func (PriceDbEntry) TableName() string {
@@ -66,6 +69,7 @@ func collect_prices(rx <-chan PriceSample, db *gorm.DB) {
 				Time:        time.Now(),
 				Address:     sample.Address,
 				GeoLocation: sample.GeoLocation,
+				Id:          sample.Id,
 			})
 		}
 	}
@@ -109,6 +113,7 @@ func scrape_price(url string, tx chan<- PriceSample) {
 		Time:        time.Now(),
 		Address:     address,
 		GeoLocation: geolocation,
+		Id:          uuid.New(),
 	}
 
 	tx <- price_sample

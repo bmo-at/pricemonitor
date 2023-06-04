@@ -32,6 +32,7 @@ require (
 	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/chromedp/cdproto v0.0.0-20221126224343-3a0787b8dd28
 	github.com/chromedp/chromedp v0.8.6
+	github.com/google/uuid v1.3.0
 	github.com/samber/lo v1.36.0
 	gorm.io/driver/postgres v1.4.5
 	gorm.io/gorm v1.24.1
