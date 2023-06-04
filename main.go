@@ -45,6 +45,22 @@ func main() {
 		"10024747-saarbrucken-provinzialstr-2",
 		"10024285-saarbruecken-lebacherstr",
 		"10025246-saarbruecken-hochstr",
+		"10024753-neunkirchen-fernstr",
+		"10026417-neunkirchen-untere-bliesstr",
+		"10024295-ottweiler-bliesstr",
+		"10025634-puettlingen-bahnhofstr-76",
+		"10024748-voelklingen-karolinger-str",
+		"10026410-voelklingen-voelklinger-str",
+		"10025240-ueberherrn-altforw-landstr",
+		"10024623-saarlouis-lisdorfer-str",
+		"10025255-wallerfangen-hauptstr",
+		"10024293-homburg-bexbacher-str-74",
+		"10025261-kirkel-a-d-windschnorr",
+		"10025851-st-ingbert-suedstr-64",
+		"10024752-neunkirchen-ludwigsthaler-s",
+		"10025982-kleinblittersdorf-konrad-adenauer",
+		"10025258-gersheim-bliestalstr",
+		"10025259-homburg-ri-wagner-str",
 	}
 
 	collect_channel := make(chan PriceSample)
