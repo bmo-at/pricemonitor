@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmo-at/pricemonitor/constants"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
@@ -17,125 +19,20 @@ import (
 	"gorm.io/gorm"
 )
 
-type PriceSample struct {
-	Prices      map[string]float32
-	Time        time.Time
-	Address     string
-	GeoLocation string
-	Id          uuid.UUID
+type PriceMonitorApplication struct {
+	database  *gorm.DB
+	locations []Location
 }
 
-type PriceDbEntry struct {
-	FuelName    string
-	Price       float32
-	Time        time.Time
-	Address     string
-	GeoLocation string
-	Id          uuid.UUID `gorm:"type:uuid"`
-}
+func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, error) {
+	app := new(PriceMonitorApplication)
 
-func (PriceDbEntry) TableName() string {
-	return "pricemonitor"
-}
-
-func main() {
-	db := init_db()
-
-	locations := []string{
-		"10024747-saarbrucken-provinzialstr-2",
-		"10024285-saarbruecken-lebacherstr",
-		"10025246-saarbruecken-hochstr",
-		"10024753-neunkirchen-fernstr",
-		"10026417-neunkirchen-untere-bliesstr",
-		"10024295-ottweiler-bliesstr",
-		"10025634-puettlingen-bahnhofstr-76",
-		"10024748-voelklingen-karolinger-str",
-		"10026410-voelklingen-voelklinger-str",
-		"10025240-ueberherrn-altforw-landstr",
-		"10024623-saarlouis-lisdorfer-str",
-		"10025255-wallerfangen-hauptstr",
-		"10024293-homburg-bexbacher-str-74",
-		"10025261-kirkel-a-d-windschnorr",
-		"10025851-st-ingbert-suedstr-64",
-		"10024752-neunkirchen-ludwigsthaler-s",
-		"10025982-kleinblittersdorf-konrad-adenauer",
-		"10025258-gersheim-bliestalstr",
-		"10025259-homburg-ri-wagner-str",
+	for _, l := range locations {
+		app.locations = append(app.locations, Location{
+			Identifier: l,
+		})
 	}
 
-	collect_channel := make(chan PriceSample)
-
-	go collect_prices(collect_channel, db)
-
-	for {
-		for _, location := range locations {
-			go scrape_price(fmt.Sprintf("https://find.shell.com/de/fuel/%s", location), collect_channel)
-		}
-		time.Sleep(time.Minute)
-	}
-}
-
-func collect_prices(rx <-chan PriceSample, db *gorm.DB) {
-	for {
-		sample := <-rx
-		for name, price := range sample.Prices {
-			db.Model(&PriceDbEntry{}).Create(&PriceDbEntry{
-				FuelName:    name,
-				Price:       price,
-				Time:        sample.Time,
-				Address:     sample.Address,
-				GeoLocation: sample.GeoLocation,
-				Id:          sample.Id,
-			})
-		}
-	}
-}
-
-func scrape_price(url string, tx chan<- PriceSample) {
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-
-	var address string
-	var geolocation string
-	var fuel_name_nodes []*cdp.Node
-	var fuel_price_nodes []*cdp.Node
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(url),
-		chromedp.Text(`.station-page-details__value[aria-labelledby=details-address]`, &address, chromedp.NodeVisible),
-		chromedp.Text(`.station-page-details__value[aria-labelledby=details-lat_lng]`, &geolocation, chromedp.NodeVisible),
-		chromedp.Nodes(`.station-page-fuel-prices__fuel-name`, &fuel_name_nodes, chromedp.NodeVisible),
-		chromedp.Nodes(`.station-page-fuel-prices__fuel-price`, &fuel_price_nodes, chromedp.NodeVisible),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	zipped_nodes := lo.Zip2(fuel_name_nodes, fuel_price_nodes)
-
-	prices := lo.SliceToMap(zipped_nodes, func(t lo.Tuple2[*cdp.Node, *cdp.Node]) (string, float32) {
-		trimmed := strings.TrimPrefix(strings.TrimSuffix(t.B.Children[len(t.B.Children)-1].NodeValue, "/L"), "€")
-
-		price, err := strconv.ParseFloat(trimmed, 32)
-
-		if err != nil {
-			fmt.Printf("Error while parsing price: %s", err.Error())
-		}
-
-		return t.A.Children[len(t.A.Children)-1].NodeValue, float32(price)
-	})
-
-	price_sample := PriceSample{
-		Prices:      prices,
-		Time:        time.Now(),
-		Address:     address,
-		GeoLocation: geolocation,
-		Id:          uuid.New(),
-	}
-
-	tx <- price_sample
-}
-
-func init_db() *gorm.DB {
 	db_user := "postgres"
 
 	if value, exists := os.LookupEnv("PRICEMONITOR_DB_USER"); exists {
@@ -171,13 +68,13 @@ func init_db() *gorm.DB {
 	db, err := gorm.Open(postgres.Open(fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%s", db_host, db_user, db_password, db_port)), &gorm.Config{})
 
 	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err.Error())
+		return nil, errors.Join(errors.New((fmt.Sprintf("failed to connect to database: %v", err.Error(), err))))
 	}
 
 	err = db.AutoMigrate(&PriceDbEntry{})
 
 	if err != nil {
-		log.Fatalf("failed to automigrate database: %s", err.Error())
+		return nil, errors.Join(errors.New((fmt.Sprintf("failed to automigrate database: %v", err.Error(), err))))
 	}
 
 	var tables []struct {
@@ -201,5 +98,130 @@ func init_db() *gorm.DB {
 		log.Printf("Hypertable %s already exists, skipping creation", PriceDbEntry.TableName(PriceDbEntry{}))
 	}
 
-	return db
+	app.database = db
+
+	return app, nil
+}
+
+type PriceSample struct {
+	Prices      map[string]float32
+	Time        time.Time
+	Address     string
+	GeoLocation string
+	Id          uuid.UUID
+}
+
+type PriceDbEntry struct {
+	FuelName    string
+	Price       float32
+	Time        time.Time
+	Address     string
+	GeoLocation string
+	Id          uuid.UUID `gorm:"type:uuid"`
+}
+
+type Location struct {
+	Identifier string
+}
+
+func (PriceDbEntry) TableName() string {
+	return "pricemonitor"
+}
+
+func main() {
+	app, err := NewPriceMonitorApplication(
+		"10024747-saarbrucken-provinzialstr-2",
+		"10024285-saarbruecken-lebacherstr",
+		"10025246-saarbruecken-hochstr",
+		"10024753-neunkirchen-fernstr",
+		"10026417-neunkirchen-untere-bliesstr",
+		"10024295-ottweiler-bliesstr",
+		"10025634-puettlingen-bahnhofstr-76",
+		"10024748-voelklingen-karolinger-str",
+		"10026410-voelklingen-voelklinger-str",
+		"10025240-ueberherrn-altforw-landstr",
+		"10024623-saarlouis-lisdorfer-str",
+		"10025255-wallerfangen-hauptstr",
+		"10024293-homburg-bexbacher-str-74",
+		"10025261-kirkel-a-d-windschnorr",
+		"10025851-st-ingbert-suedstr-64",
+		"10024752-neunkirchen-ludwigsthaler-s",
+		"10025982-kleinblittersdorf-konrad-adenauer",
+		"10025258-gersheim-bliestalstr",
+		"10025259-homburg-ri-wagner-str")
+
+	if err != nil {
+		panic(err)
+	}
+
+	collect_channel := make(chan PriceSample)
+
+	go app.collect_prices(collect_channel)
+
+	for {
+		for _, location := range app.locations {
+			go app.scrape_price(fmt.Sprintf(constants.SCRAPE_URL, location), collect_channel)
+		}
+		time.Sleep(time.Minute)
+	}
+}
+
+func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
+	for {
+		sample := <-rx
+		for name, price := range sample.Prices {
+			app.database.Model(&PriceDbEntry{}).Create(&PriceDbEntry{
+				FuelName:    name,
+				Price:       price,
+				Time:        sample.Time,
+				Address:     sample.Address,
+				GeoLocation: sample.GeoLocation,
+				Id:          sample.Id,
+			})
+		}
+	}
+}
+
+func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSample) {
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	var address string
+	var geolocation string
+	var fuel_name_nodes []*cdp.Node
+	var fuel_price_nodes []*cdp.Node
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.Text(constants.ADDRESS_SELECTOR, &address, chromedp.NodeVisible),
+		chromedp.Text(constants.COORDINATES_SELECTOR, &geolocation, chromedp.NodeVisible),
+		chromedp.Nodes(constants.FUEL_NAME_SELECTOR, &fuel_name_nodes, chromedp.NodeVisible),
+		chromedp.Nodes(constants.PRICE_SELECTOR, &fuel_price_nodes, chromedp.NodeVisible),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	zipped_nodes := lo.Zip2(fuel_name_nodes, fuel_price_nodes)
+
+	prices := lo.SliceToMap(zipped_nodes, func(t lo.Tuple2[*cdp.Node, *cdp.Node]) (string, float32) {
+		trimmed := strings.TrimPrefix(strings.TrimSuffix(t.B.Children[len(t.B.Children)-1].NodeValue, "/L"), "€")
+
+		price, err := strconv.ParseFloat(trimmed, 32)
+
+		if err != nil {
+			fmt.Printf("Error while parsing price: %s", err.Error())
+		}
+
+		return t.A.Children[len(t.A.Children)-1].NodeValue, float32(price)
+	})
+
+	price_sample := PriceSample{
+		Prices:      prices,
+		Time:        time.Now(),
+		Address:     address,
+		GeoLocation: geolocation,
+		Id:          uuid.New(),
+	}
+
+	tx <- price_sample
 }
