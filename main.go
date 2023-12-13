@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmo-at/pricemonitor/constants"
+	"github.com/bmo-at/pricemonitor/internal/constants"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
@@ -68,13 +68,13 @@ func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, 
 	db, err := gorm.Open(postgres.Open(fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%s", db_host, db_user, db_password, db_port)), &gorm.Config{})
 
 	if err != nil {
-		return nil, errors.Join(errors.New((fmt.Sprintf("failed to connect to database: %v", err.Error(), err))))
+		return nil, errors.Join(fmt.Errorf("failed to connect to database: %v", err.Error()), err)
 	}
 
 	err = db.AutoMigrate(&PriceDbEntry{})
 
 	if err != nil {
-		return nil, errors.Join(errors.New((fmt.Sprintf("failed to automigrate database: %v", err.Error(), err))))
+		return nil, errors.Join(fmt.Errorf("failed to automigrate database: %v", err.Error()), err)
 	}
 
 	var tables []struct {
