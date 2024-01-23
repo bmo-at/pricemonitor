@@ -15,6 +15,7 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
