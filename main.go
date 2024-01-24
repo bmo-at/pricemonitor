@@ -1,28 +1,31 @@
 package main
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/antchfx/htmlquery"
 	"github.com/bmo-at/pricemonitor/internal/constants"
-	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"golang.org/x/net/html"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 type PriceMonitorApplication struct {
-	database  *gorm.DB
-	locations []Location
+	database        *gorm.DB
+	locations       []Location
+	browserless_url string
 }
 
 func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, error) {
@@ -64,6 +67,14 @@ func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, 
 		db_port = value
 	} else {
 		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_DB_PORT", db_port)
+	}
+
+	app.browserless_url = "http://localhost:3000/content?token=dev_token"
+
+	if value, exists := os.LookupEnv("PRICEMONITOR_BROWSERLESS_URL"); exists {
+		db_port = value
+	} else {
+		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_BROWSERLESS_URL", app.browserless_url)
 	}
 
 	db, err := gorm.Open(postgres.Open(fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%s", db_host, db_user, db_password, db_port)), &gorm.Config{})
@@ -115,7 +126,7 @@ type PriceSample struct {
 type PriceDbEntry struct {
 	FuelName    string
 	Price       float32
-	Time        time.Time
+	Time        time.Time `gorm:"not null"`
 	Address     string
 	GeoLocation string
 	Id          uuid.UUID `gorm:"type:uuid"`
@@ -151,6 +162,8 @@ func main() {
 		"10025258-gersheim-bliestalstr",
 		"10025259-homburg-ri-wagner-str")
 
+	htmlquery.DisableSelectorCache = true
+
 	if err != nil {
 		panic(err)
 	}
@@ -161,7 +174,7 @@ func main() {
 
 	for {
 		for _, location := range app.locations {
-			go app.scrape_price(fmt.Sprintf(constants.SCRAPE_URL, location), collect_channel)
+			go app.scrape_price(fmt.Sprintf(constants.SCRAPE_URL, location.Identifier), collect_channel)
 		}
 		time.Sleep(time.Minute)
 	}
@@ -184,28 +197,53 @@ func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
 }
 
 func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSample) {
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
+	bytes, err := json.Marshal(map[string]any{
+		"url": url,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, app.browserless_url, strings.NewReader(string(bytes)))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Cache-Control", "no-cache")
+
+	if err != nil {
+		panic(err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+
+	if err != nil {
+		panic(err)
+	}
+
+	bytes, err = io.ReadAll(resp.Body)
+
+	if err != nil {
+		panic(err)
+	}
+
+	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))
+
+	if err != nil {
+		panic(err)
+	}
+
+	fuel_names := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-name"]`)
+	fuel_prices := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-price"]`)
 
 	var address string
 	var geolocation string
-	var fuel_name_nodes []*cdp.Node
-	var fuel_price_nodes []*cdp.Node
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(url),
-		chromedp.Text(constants.ADDRESS_SELECTOR, &address, chromedp.NodeVisible),
-		chromedp.Text(constants.COORDINATES_SELECTOR, &geolocation, chromedp.NodeVisible),
-		chromedp.Nodes(constants.FUEL_NAME_SELECTOR, &fuel_name_nodes, chromedp.NodeVisible),
-		chromedp.Nodes(constants.PRICE_SELECTOR, &fuel_price_nodes, chromedp.NodeVisible),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	zipped_nodes := lo.Zip2(fuel_name_nodes, fuel_price_nodes)
+	zipped_nodes := lo.Zip2(fuel_names, fuel_prices)
 
-	prices := lo.SliceToMap(zipped_nodes, func(t lo.Tuple2[*cdp.Node, *cdp.Node]) (string, float32) {
-		trimmed := strings.TrimPrefix(strings.TrimSuffix(t.B.Children[len(t.B.Children)-1].NodeValue, "/L"), "€")
+	prices := lo.SliceToMap(zipped_nodes, func(t lo.Tuple2[*html.Node, *html.Node]) (string, float32) {
+		trimmed := strings.TrimPrefix(strings.TrimSuffix(t.B.FirstChild.Data, "/L"), "€")
+
+		if t.A.FirstChild.Data == "Shell Recharge" {
+			return t.A.FirstChild.Data, 0.0
+		}
 
 		price, err := strconv.ParseFloat(trimmed, 32)
 
@@ -213,7 +251,7 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 			fmt.Printf("Error while parsing price: %s", err.Error())
 		}
 
-		return t.A.Children[len(t.A.Children)-1].NodeValue, float32(price)
+		return t.A.FirstChild.Data, float32(price)
 	})
 
 	price_sample := PriceSample{
