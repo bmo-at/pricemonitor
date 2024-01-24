@@ -183,7 +183,6 @@ func main() {
 func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
 	for {
 		sample := <-rx
-		log.Printf("Price sample collected: %+v", sample)
 		for name, price := range sample.Prices {
 			app.database.Model(&PriceDbEntry{}).Create(&PriceDbEntry{
 				FuelName:    name,
@@ -262,6 +261,5 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 		Id:          uuid.New(),
 	}
 
-	log.Printf("Price sample scraped: %+v", price_sample)
 	tx <- price_sample
 }
