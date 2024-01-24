@@ -72,7 +72,7 @@ func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, 
 	app.browserless_url = "http://localhost:3000/content?token=dev_token"
 
 	if value, exists := os.LookupEnv("PRICEMONITOR_BROWSERLESS_URL"); exists {
-		db_port = value
+		app.browserless_url = value
 	} else {
 		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_BROWSERLESS_URL", app.browserless_url)
 	}
