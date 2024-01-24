@@ -183,6 +183,7 @@ func main() {
 func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
 	for {
 		sample := <-rx
+		log.Printf("Price sample collected: %+v", sample)
 		for name, price := range sample.Prices {
 			app.database.Model(&PriceDbEntry{}).Create(&PriceDbEntry{
 				FuelName:    name,
@@ -232,9 +233,8 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 
 	fuel_names := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-name"]`)
 	fuel_prices := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-price"]`)
-
-	var address string
-	var geolocation string
+	address := htmlquery.FindOne(doc, `//*[@id="details"]/div/div[1]/div`).FirstChild.Data
+	geolocation := htmlquery.FindOne(doc, `//*[@id="details"]/div/div[2]/div`).FirstChild.Data
 
 	zipped_nodes := lo.Zip2(fuel_names, fuel_prices)
 
@@ -262,5 +262,6 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 		Id:          uuid.New(),
 	}
 
+	log.Printf("Price sample scraped: %+v", price_sample)
 	tx <- price_sample
 }
