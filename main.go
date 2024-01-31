@@ -232,6 +232,12 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 
 	fuel_names := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-name"]`)
 	fuel_prices := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-price"]`)
+
+	if fuel_names == nil || fuel_prices == nil {
+		fmt.Printf("Could not find fuel names or prices, aborting...\nReceived raw html: '%s'", string(bytes))
+		return
+	}
+
 	address := htmlquery.FindOne(doc, `//*[@id="details"]/div/div[1]/div`).FirstChild.Data
 	geolocation := htmlquery.FindOne(doc, `//*[@id="details"]/div/div[2]/div`).FirstChild.Data
 
@@ -247,7 +253,7 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 		price, err := strconv.ParseFloat(trimmed, 32)
 
 		if err != nil {
-			fmt.Printf("Error while parsing price: %s", err.Error())
+			fmt.Printf("Error while parsing price: %s\n", err.Error())
 		}
 
 		return t.A.FirstChild.Data, float32(price)
