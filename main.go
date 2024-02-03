@@ -170,6 +170,8 @@ func main() {
 
 	collect_channel := make(chan PriceSample)
 
+	go app.station_names()
+
 	go app.collect_prices(collect_channel)
 
 	for {
@@ -178,6 +180,37 @@ func main() {
 		}
 		time.Sleep(time.Minute)
 	}
+}
+
+func (app PriceMonitorApplication) station_names() {
+	for {
+		var count int64
+		app.database.Raw("SELECT COUNT(*) FROM pg_matviews WHERE matviewname = 'pricemonitor_station_product_names';").Count(&count)
+
+		if count == 0 {
+			tx := app.database.Exec(`CREATE MATERIALIZED VIEW pricemonitor_station_product_names AS
+			SELECT DISTINCT address, fuel_name
+			FROM pricemonitor;`)
+
+			if err := tx.Error; err != nil {
+				fmt.Printf("Materialized view for station/product names could not be created '%s'", err.Error())
+			}
+		}
+
+		tomorrow := time.Now().Add(time.Hour * 24)
+
+		next_midnight := time.Until(time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, time.Local))
+
+		fmt.Printf("Created/refreshed materialized view for station/product names , sleeping until %s", next_midnight.String())
+
+		time.Sleep(next_midnight)
+
+		tx := app.database.Exec(`REFRESH MATERIALIZED VIEW my_materialized_view;`)
+		if err := tx.Error; err != nil {
+			fmt.Printf("Materialized view for station/product names could not be refreshed '%s'", err.Error())
+		}
+	}
+
 }
 
 func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
