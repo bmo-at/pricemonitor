@@ -248,7 +248,23 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
-		panic(err)
+		retry_counter := 0
+
+		for {
+			fmt.Println("Encountered error making a request to browserless, retrying...")
+			resp, err = http.DefaultClient.Do(req)
+
+			if err != nil && retry_counter < 5 {
+				retry_counter++
+				continue
+			} else {
+				break
+			}
+		}
+
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	bytes, err = io.ReadAll(resp.Body)
