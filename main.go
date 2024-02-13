@@ -264,8 +264,10 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 				break
 			}
 		}
-
-		fmt.Printf("Encountered unresolvable error making a request to browserless: %s\n", err.Error())
+		if err != nil {
+			fmt.Printf("Encountered unresolvable error making a request to browserless: %s\n", err.Error())
+			return
+		}
 	}
 
 	bytes, err = io.ReadAll(resp.Body)
