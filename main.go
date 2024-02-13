@@ -259,6 +259,7 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 
 			if err != nil && retry_counter < 5 {
 				retry_counter++
+				time.Sleep(time.Second * 2)
 				continue
 			} else {
 				break
