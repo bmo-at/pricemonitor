@@ -216,16 +216,19 @@ func (app PriceMonitorApplication) station_names() {
 func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
 	for {
 		sample := <-rx
+		entries := make([]PriceDbEntry, 0)
 		for name, price := range sample.Prices {
-			app.database.Model(&PriceDbEntry{}).Create(&PriceDbEntry{
+			entry := PriceDbEntry{
 				FuelName:    name,
 				Price:       price,
 				Time:        sample.Time,
 				Address:     sample.Address,
 				GeoLocation: sample.GeoLocation,
 				Id:          sample.Id,
-			})
+			}
+			entries = append(entries, entry)
 		}
+		app.database.Model(&PriceDbEntry{}).Create(entries)
 	}
 }
 
@@ -262,9 +265,7 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 			}
 		}
 
-		if err != nil {
-			panic(err)
-		}
+		fmt.Printf("Encountered unresolvable error making a request to browserless: %s\n", err.Error())
 	}
 
 	bytes, err = io.ReadAll(resp.Body)
