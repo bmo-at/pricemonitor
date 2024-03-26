@@ -184,7 +184,7 @@ func (app PriceMonitorApplication) station_names() {
 			}
 		}
 
-		app.database.Raw("SELECT COUNT(*) FROM timescaledb_information.continuous_aggregate WHERE view_name = 'weekly_fuel_prices';").Count(&count)
+		app.database.Raw("SELECT COUNT(*) FROM timescaledb_information.continuous_aggregates WHERE view_name = 'weekly_fuel_prices';").Count(&count)
 
 		if count == 0 {
 			tx := app.database.Exec(`CREATE MATERIALIZED VIEW weekly_fuel_prices
