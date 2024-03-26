@@ -205,7 +205,7 @@ func (app PriceMonitorApplication) station_names() {
 
 		time.Sleep(next_midnight)
 
-		tx := app.database.Exec(`REFRESH MATERIALIZED VIEW my_materialized_view;`)
+		tx := app.database.Exec(`REFRESH MATERIALIZED VIEW pricemonitor_station_product_names;`)
 		if err := tx.Error; err != nil {
 			fmt.Printf("Materialized view for station/product names could not be refreshed '%s'", err.Error())
 		}
