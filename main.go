@@ -28,14 +28,8 @@ type PriceMonitorApplication struct {
 	browserless_url string
 }
 
-func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, error) {
+func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 	app := new(PriceMonitorApplication)
-
-	for _, l := range locations {
-		app.locations = append(app.locations, Location{
-			Identifier: l,
-		})
-	}
 
 	db_user := "postgres"
 
@@ -67,6 +61,18 @@ func NewPriceMonitorApplication(locations ...string) (*PriceMonitorApplication, 
 		db_port = value
 	} else {
 		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_DB_PORT", db_port)
+	}
+
+	app.locations = make([]Location, 0)
+
+	if value, exists := os.LookupEnv("PRICEMONITOR_STATIONS"); exists {
+		for _, station_code := range strings.Split(value, ",") {
+			app.locations = append(app.locations, Location{
+				Identifier: station_code,
+			})
+		}
+	} else {
+		log.Printf("Environment variable %s not set, not tracking any stations!", "PRICEMONITOR_STATIONS")
 	}
 
 	app.browserless_url = "http://localhost:3000/content?token=dev_token"
@@ -141,26 +147,7 @@ func (PriceDbEntry) TableName() string {
 }
 
 func main() {
-	app, err := NewPriceMonitorApplication(
-		"10024747-saarbrucken-provinzialstr-2",
-		"10024285-saarbruecken-lebacherstr",
-		"10025246-saarbruecken-hochstr",
-		"10024753-neunkirchen-fernstr",
-		"10026417-neunkirchen-untere-bliesstr",
-		"10024295-ottweiler-bliesstr",
-		"10025634-puettlingen-bahnhofstr-76",
-		"10024748-voelklingen-karolinger-str",
-		"10026410-voelklingen-voelklinger-str",
-		"10025240-ueberherrn-altforw-landstr",
-		"10024623-saarlouis-lisdorfer-str",
-		"10025255-wallerfangen-hauptstr",
-		"10024293-homburg-bexbacher-str-74",
-		"10025261-kirkel-a-d-windschnorr",
-		"10025851-st-ingbert-suedstr-64",
-		"10024752-neunkirchen-ludwigsthaler-s",
-		"10025982-kleinblittersdorf-konrad-adenauer",
-		"10025258-gersheim-bliestalstr",
-		"10025259-homburg-ri-wagner-str")
+	app, err := NewPriceMonitorApplication()
 
 	htmlquery.DisableSelectorCache = true
 
@@ -197,6 +184,25 @@ func (app PriceMonitorApplication) station_names() {
 			}
 		}
 
+		app.database.Raw("SELECT COUNT(*) FROM pg_matviews WHERE matviewname = 'weekly_fuel_prices';").Count(&count)
+
+		if count == 0 {
+			tx := app.database.Exec(`CREATE MATERIALIZED VIEW weekly_fuel_prices
+			WITH (timescaledb.continuous) AS
+			SELECT
+			  time_bucket('1w', time) AS week,
+			  fuel_name,
+			  min(price) AS Minimum,
+			  avg(price) AS Average
+			FROM pricemonitor
+			WHERE price > 0
+			GROUP BY week, fuel_name;`)
+
+			if err := tx.Error; err != nil {
+				fmt.Printf("Materialized view for weekly fuel prices could not be created '%s'", err.Error())
+			}
+		}
+
 		tomorrow := time.Now().Add(time.Hour * 24)
 
 		next_midnight := time.Until(time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, time.Local))
@@ -208,6 +214,11 @@ func (app PriceMonitorApplication) station_names() {
 		tx := app.database.Exec(`REFRESH MATERIALIZED VIEW pricemonitor_station_product_names;`)
 		if err := tx.Error; err != nil {
 			fmt.Printf("Materialized view for station/product names could not be refreshed '%s'", err.Error())
+		}
+
+		tx = app.database.Exec(`REFRESH MATERIALIZED VIEW weekly_fuel_prices;`)
+		if err := tx.Error; err != nil {
+			fmt.Printf("Materialized view for weekly fuel prices could not be refreshed '%s'", err.Error())
 		}
 	}
 
