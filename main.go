@@ -216,7 +216,7 @@ func (app PriceMonitorApplication) station_names() {
 			fmt.Printf("Materialized view for station/product names could not be refreshed '%s'", err.Error())
 		}
 
-		tx = app.database.Exec(`REFRESH MATERIALIZED VIEW weekly_fuel_prices;`)
+		tx = app.database.Exec(`CALL refresh_continuous_aggregate('weekly_fuel_prices', NULL, NULL);`)
 		if err := tx.Error; err != nil {
 			fmt.Printf("Materialized view for weekly fuel prices could not be refreshed '%s'", err.Error())
 		}
