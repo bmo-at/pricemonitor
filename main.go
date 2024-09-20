@@ -294,8 +294,8 @@ func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSampl
 		panic(err)
 	}
 
-	fuel_names := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-name"]`)
-	fuel_prices := htmlquery.Find(doc, `//*[@class="station-page-fuel-prices__fuel-price"]`)
+	fuel_names := htmlquery.Find(doc, `//*[@class="fuel-prices__fuel-name"]`)
+	fuel_prices := htmlquery.Find(doc, `//*[@class="fuel-prices__fuel-price"]`)
 
 	if fuel_names == nil || fuel_prices == nil {
 		fmt.Printf("Could not find fuel names or prices, aborting...\nReceived raw html: '%s'", string(bytes))
