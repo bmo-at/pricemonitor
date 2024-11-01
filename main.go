@@ -1,149 +1,106 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
+	"context"
+	"database/sql"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/antchfx/htmlquery"
-	"github.com/bmo-at/pricemonitor/internal/constants"
-	"github.com/google/uuid"
-	"github.com/samber/lo"
-	"golang.org/x/net/html"
+	model "github.com/bmo-at/pricemonitor/internal/model/generated"
+	"github.com/bmo-at/pricemonitor/internal/model/migrations"
+	"github.com/bmo-at/pricemonitor/internal/stations"
+	"github.com/pressly/goose/v3"
+	"go-simpler.org/env"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type PriceMonitorApplication struct {
-	database        *gorm.DB
-	locations       []Location
-	browserless_url string
+	database *sql.DB
+	pgx      *pgx.Conn
+	queries  *model.Queries
+	stations []stations.Station
+	config   Config
+}
+
+type Config struct {
+	Database struct {
+		User     string `default:"postgres"  env:"USER"`
+		Password string `default:"password"  env:"PASSWORD"`
+		Host     string `default:"localhost" env:"HOST"`
+		Port     uint16 `default:"5432"      env:"PORT"`
+	} `env:"PRICEMONITOR_DATABASE_"`
+
+	Stations string `env:"PRICEMONITOR_STATIONS"`
 }
 
 func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 	app := new(PriceMonitorApplication)
 
-	db_user := "postgres"
-
-	if value, exists := os.LookupEnv("PRICEMONITOR_DB_USER"); exists {
-		db_user = value
-	} else {
-		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_DB_USER", db_user)
+	if err := env.Load(&app.config, nil); err != nil {
+		return nil, fmt.Errorf("could not load config: %w", err)
 	}
 
-	db_password := "pricemonitor_dev_password"
+	app.stations = make([]stations.Station, 0)
 
-	if value, exists := os.LookupEnv("PRICEMONITOR_DB_PASSWORD"); exists {
-		db_password = value
-	} else {
-		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_DB_PASSWORD", db_password)
-	}
+	if len(app.config.Stations) > 0 {
+		for _, station := range strings.Split(app.config.Stations, ",") {
+			station, err := stations.NewStation(station)
 
-	db_host := "localhost"
+			if err != nil {
+				return nil, err
+			}
 
-	if value, exists := os.LookupEnv("PRICEMONITOR_DB_HOST"); exists {
-		db_host = value
-	} else {
-		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_DB_HOST", db_host)
-	}
-
-	db_port := "5432"
-
-	if value, exists := os.LookupEnv("PRICEMONITOR_DB_PORT"); exists {
-		db_port = value
-	} else {
-		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_DB_PORT", db_port)
-	}
-
-	app.locations = make([]Location, 0)
-
-	if value, exists := os.LookupEnv("PRICEMONITOR_STATIONS"); exists {
-		for _, station_code := range strings.Split(value, ",") {
-			app.locations = append(app.locations, Location{
-				Identifier: station_code,
-			})
+			app.stations = append(app.stations, station)
 		}
 	} else {
 		log.Printf("Environment variable %s not set, not tracking any stations!", "PRICEMONITOR_STATIONS")
 	}
 
-	app.browserless_url = "http://localhost:3000/content?token=dev_token"
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=pricemonitor port=%d",
+		app.config.Database.Host,
+		app.config.Database.User,
+		app.config.Database.Password,
+		app.config.Database.Port,
+	)
 
-	if value, exists := os.LookupEnv("PRICEMONITOR_BROWSERLESS_URL"); exists {
-		app.browserless_url = value
-	} else {
-		log.Printf("Environment variable %s not set, using default value %s", "PRICEMONITOR_BROWSERLESS_URL", app.browserless_url)
-	}
-
-	db, err := gorm.Open(postgres.Open(fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%s", db_host, db_user, db_password, db_port)), &gorm.Config{})
-
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("failed to connect to database: %v", err.Error()), err)
-	}
-
-	err = db.AutoMigrate(&PriceDbEntry{})
+	sqlDB, err := sql.Open("pgx", dsn)
 
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("failed to automigrate database: %v", err.Error()), err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	var tables []struct {
-		Name string
+	app.database = sqlDB
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		return nil, fmt.Errorf("unable to set dialect for database migration: %w", err)
 	}
 
-	db.Raw("SELECT table_name AS name FROM _timescaledb_catalog.hypertable").Scan(&tables)
+	goose.SetBaseFS(migrations.FS)
+	err = goose.Up(app.database, ".")
 
-	hypertable_exists := false
-
-	for _, table := range tables {
-		if strings.Compare(table.Name, PriceDbEntry.TableName(PriceDbEntry{})) == 0 {
-			hypertable_exists = true
-		}
+	if err != nil {
+		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	if !hypertable_exists {
-		log.Printf("Hypertable %s does not yet exist, creating...", PriceDbEntry.TableName(PriceDbEntry{}))
-		db.Exec("SELECT create_hypertable(?, 'time')", PriceDbEntry.TableName(PriceDbEntry{}))
-	} else {
-		log.Printf("Hypertable %s already exists, skipping creation", PriceDbEntry.TableName(PriceDbEntry{}))
+	conn, err := pgx.Connect(context.Background(), dsn)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	app.database = db
+	app.queries = model.New(conn)
+	app.pgx = conn
 
 	return app, nil
 }
 
-type PriceSample struct {
-	Prices      map[string]float32
-	Time        time.Time
-	Address     string
-	GeoLocation string
-	Id          uuid.UUID
-}
-
-type PriceDbEntry struct {
-	FuelName    string
-	Price       float32
-	Time        time.Time `gorm:"not null"`
-	Address     string
-	GeoLocation string
-	Id          uuid.UUID `gorm:"type:uuid"`
-}
-
 type Location struct {
 	Identifier string
-}
-
-func (PriceDbEntry) TableName() string {
-	return "pricemonitor"
 }
 
 func main() {
@@ -155,181 +112,45 @@ func main() {
 		panic(err)
 	}
 
-	collect_channel := make(chan PriceSample)
+	funnel := make(chan stations.Sample)
 
-	go app.station_names()
-
-	go app.collect_prices(collect_channel)
+	go app.collector(funnel)
 
 	for {
-		for _, location := range app.locations {
-			go app.scrape_price(fmt.Sprintf(constants.SCRAPE_URL, location.Identifier), collect_channel)
+		for _, station := range app.stations {
+			go func() {
+				sample, err := station.ScrapePrices()
+				if err != nil {
+					// TODO: Error should be better raised here
+					log.Println(err)
+
+					return
+				}
+				funnel <- sample
+			}()
 		}
+
 		time.Sleep(time.Minute)
 	}
 }
 
-func (app PriceMonitorApplication) station_names() {
-	for {
-		var count int64
-		app.database.Raw("SELECT COUNT(*) FROM pg_matviews WHERE matviewname = 'pricemonitor_station_product_names';").Count(&count)
-
-		if count == 0 {
-			tx := app.database.Exec(`CREATE MATERIALIZED VIEW pricemonitor_station_product_names AS
-			SELECT DISTINCT address, fuel_name
-			FROM pricemonitor;`)
-
-			if err := tx.Error; err != nil {
-				fmt.Printf("Materialized view for station/product names could not be created '%s'", err.Error())
-			}
-		}
-
-		app.database.Raw("SELECT COUNT(*) FROM timescaledb_information.continuous_aggregates WHERE view_name = 'weekly_fuel_prices';").Count(&count)
-
-		if count == 0 {
-			tx := app.database.Exec(`CREATE MATERIALIZED VIEW weekly_fuel_prices
-			WITH (timescaledb.continuous) AS
-			SELECT
-			  time_bucket('1w', time) AS week,
-			  fuel_name,
-			  min(price) AS Minimum,
-			  avg(price) AS Average
-			FROM pricemonitor
-			WHERE price > 0
-			GROUP BY week, fuel_name;`)
-
-			if err := tx.Error; err != nil {
-				fmt.Printf("Materialized view for weekly fuel prices could not be created '%s'", err.Error())
-			}
-		}
-
-		tomorrow := time.Now().Add(time.Hour * 24)
-
-		next_midnight := time.Until(time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, time.Local))
-
-		fmt.Printf("Created/refreshed materialized view for station/product names , sleeping until %s", next_midnight.String())
-
-		time.Sleep(next_midnight)
-
-		tx := app.database.Exec(`REFRESH MATERIALIZED VIEW pricemonitor_station_product_names;`)
-		if err := tx.Error; err != nil {
-			fmt.Printf("Materialized view for station/product names could not be refreshed '%s'", err.Error())
-		}
-
-		tx = app.database.Exec(`CALL refresh_continuous_aggregate('weekly_fuel_prices', NULL, NULL);`)
-		if err := tx.Error; err != nil {
-			fmt.Printf("Materialized view for weekly fuel prices could not be refreshed '%s'", err.Error())
-		}
-	}
-
-}
-
-func (app PriceMonitorApplication) collect_prices(rx <-chan PriceSample) {
+func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 	for {
 		sample := <-rx
-		entries := make([]PriceDbEntry, 0)
 		for name, price := range sample.Prices {
-			entry := PriceDbEntry{
+			_, err := app.queries.CreateSampleAndStation(context.Background(), model.CreateSampleAndStationParams{
+				ID:          sample.ID,
 				FuelName:    name,
 				Price:       price,
 				Time:        sample.Time,
 				Address:     sample.Address,
 				GeoLocation: sample.GeoLocation,
-				Id:          sample.Id,
-			}
-			entries = append(entries, entry)
-		}
-		app.database.Model(&PriceDbEntry{}).Create(entries)
-	}
-}
+				Brand:       sample.Brand,
+			})
 
-func (app PriceMonitorApplication) scrape_price(url string, tx chan<- PriceSample) {
-	bytes, err := json.Marshal(map[string]any{
-		"url": url,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, app.browserless_url, strings.NewReader(string(bytes)))
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Cache-Control", "no-cache")
-
-	if err != nil {
-		panic(err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-
-	if err != nil {
-		retry_counter := 0
-
-		for {
-			fmt.Println("Encountered error making a request to browserless, retrying...")
-			resp, err = http.DefaultClient.Do(req)
-
-			if err != nil && retry_counter < 5 {
-				retry_counter++
-				time.Sleep(time.Second * 2)
-				continue
-			} else {
-				break
+			if err != nil {
+				log.Println(err)
 			}
 		}
-		if err != nil {
-			fmt.Printf("Encountered unresolvable error making a request to browserless: %s\n", err.Error())
-			return
-		}
 	}
-
-	bytes, err = io.ReadAll(resp.Body)
-
-	if err != nil {
-		panic(err)
-	}
-
-	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))
-
-	if err != nil {
-		panic(err)
-	}
-
-	fuel_names := htmlquery.Find(doc, `//*[@class="fuel-prices__fuel-name"]`)
-	fuel_prices := htmlquery.Find(doc, `//*[@class="fuel-prices__fuel-price"]`)
-
-	if fuel_names == nil || fuel_prices == nil {
-		fmt.Printf("Could not find fuel names or prices, aborting...\nReceived raw html: '%s'", string(bytes))
-		return
-	}
-
-	address := htmlquery.FindOne(doc, `//*[@id="details"]/div/div[1]/div`).FirstChild.Data
-	geolocation := htmlquery.FindOne(doc, `//*[@id="details"]/div/div[2]/div`).FirstChild.Data
-
-	zipped_nodes := lo.Zip2(fuel_names, fuel_prices)
-
-	prices := lo.SliceToMap(zipped_nodes, func(t lo.Tuple2[*html.Node, *html.Node]) (string, float32) {
-		trimmed := strings.TrimPrefix(strings.TrimSuffix(t.B.FirstChild.Data, "/L"), "€")
-
-		if t.A.FirstChild.Data == "Shell Recharge" {
-			return t.A.FirstChild.Data, 0.0
-		}
-
-		price, err := strconv.ParseFloat(trimmed, 32)
-
-		if err != nil {
-			fmt.Printf("Error while parsing price: %s\n", err.Error())
-		}
-
-		return t.A.FirstChild.Data, float32(price)
-	})
-
-	price_sample := PriceSample{
-		Prices:      prices,
-		Time:        time.Now(),
-		Address:     address,
-		GeoLocation: geolocation,
-		Id:          uuid.New(),
-	}
-
-	tx <- price_sample
 }
