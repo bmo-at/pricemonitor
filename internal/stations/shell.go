@@ -1,6 +1,7 @@
 package stations
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1436,7 +1437,12 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		return Sample{}, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	insecureTransport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	insecureClient := &http.Client{Transport: insecureTransport}
+
+	resp, err := insecureClient.Do(req)
 
 	if err != nil {
 		return Sample{}, err
@@ -1447,6 +1453,8 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 	if err != nil {
 		return Sample{}, err
 	}
+
+	resp.Body.Close()
 
 	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))
 
