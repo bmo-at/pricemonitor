@@ -61,7 +61,7 @@ func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 		log.Printf("Environment variable %s not set, not tracking any stations!", "PRICEMONITOR_STATIONS")
 	}
 
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=pricemonitor port=%d",
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%d",
 		app.config.Database.Host,
 		app.config.Database.User,
 		app.config.Database.Password,
