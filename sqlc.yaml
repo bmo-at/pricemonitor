@@ -14,7 +14,7 @@ sql:
           go_type:
             import: "github.com/google/uuid"
             type: "UUID"
-        - column: "samples.time"
+        - column: "pricemonitor_samples.time"
           go_type:
             import: "time"
             type: "Time"

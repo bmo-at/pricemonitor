@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Sample struct {
+type PricemonitorSample struct {
 	ID        uuid.UUID `json:"id"`
 	FuelName  string    `json:"fuel_name"`
 	Price     float32   `json:"price"`
@@ -18,9 +18,16 @@ type Sample struct {
 	StationID uuid.UUID `json:"station_id"`
 }
 
-type Station struct {
+type PricemonitorStation struct {
 	ID          uuid.UUID `json:"id"`
 	Address     string    `json:"address"`
 	GeoLocation string    `json:"geo_location"`
 	Brand       string    `json:"brand"`
+}
+
+type PricemonitorWeeklyFuelPrice struct {
+	Week     interface{} `json:"week"`
+	FuelName string      `json:"fuel_name"`
+	Minimum  interface{} `json:"minimum"`
+	Average  float64     `json:"average"`
 }
