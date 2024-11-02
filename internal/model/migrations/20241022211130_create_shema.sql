@@ -17,7 +17,7 @@ CREATE TABLE pricemonitor_samples (
 
 SELECT * FROM create_hypertable('pricemonitor_samples', by_range('time'));
 
-CREATE MATERIALIZED VIEW weekly_fuel_prices
+CREATE MATERIALIZED VIEW pricemonitor_weekly_fuel_prices
 WITH (timescaledb.continuous) AS
 SELECT
   time_bucket('1w', time) AS week,
