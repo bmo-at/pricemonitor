@@ -1,5 +1,5 @@
 -- +goose Up
-CREATE TABLE pricemonitor_stations (
+CREATE TABLE IF NOT EXISTS pricemonitor_stations (
 	"id" UUID PRIMARY KEY NOT NULL,
 	"address" TEXT NOT NULL,
 	"geo_location" TEXT NOT NULL,
@@ -7,7 +7,7 @@ CREATE TABLE pricemonitor_stations (
 	UNIQUE(address, geo_location, brand)
 );
 
-CREATE TABLE pricemonitor_samples (
+CREATE TABLE IF NOT EXISTS pricemonitor_samples (
 	"id" UUID NOT NULL,
 	"fuel_name" TEXT NOT NULL,
 	"price" REAL NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE pricemonitor_samples (
 	"station_id" UUID REFERENCES pricemonitor_stations(id) NOT NULL
 );
 
-SELECT * FROM create_hypertable('pricemonitor_samples', by_range('time'));
+SELECT create_hypertable('pricemonitor_samples', by_range('time'), if_not_exists => TRUE);
 
-CREATE MATERIALIZED VIEW pricemonitor_weekly_fuel_prices
+CREATE MATERIALIZED VIEW IF NOT EXISTS pricemonitor_weekly_fuel_prices
 WITH (timescaledb.continuous) AS
 SELECT
   time_bucket('1w', time) AS week,

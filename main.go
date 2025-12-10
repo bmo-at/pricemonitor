@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/antchfx/htmlquery"
@@ -58,7 +59,7 @@ func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 			app.stations = append(app.stations, station)
 		}
 	} else {
-		log.Printf("Environment variable %s not set, not tracking any stations!", "PRICEMONITOR_STATIONS")
+		slog.Warn("Environment variable 'PRICEMONITOR_STATIONS' not set, not tracking any stations!")
 	}
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=postgres port=%d",
@@ -117,18 +118,47 @@ func main() {
 	go app.collector(funnel)
 
 	for {
-		for _, station := range app.stations {
-			go func() {
-				sample, err := station.ScrapePrices()
-				if err != nil {
-					// TODO: Error should be better raised here
-					log.Println(err)
+		start := time.Now()
+		wg := new(sync.WaitGroup)
+		done := make(chan bool)
+		work := make(chan stations.Station)
 
-					return
+		for worker_id := range 5 {
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+
+			out:
+				for {
+					select {
+					case station := <-work:
+						slog.Debug("received station in worker", "station", station.Identifier(), "worker_id", worker_id)
+						sample, err := station.ScrapePrices()
+						if err != nil {
+							slog.Error(err.Error())
+						}
+						funnel <- sample
+
+						continue
+					case <-done:
+						break out
+					}
 				}
-				funnel <- sample
 			}()
 		}
+
+		for _, station := range app.stations {
+			slog.Debug("putting station into the work pool", "station", station.Identifier())
+			work <- station
+		}
+
+		for range 5 {
+			done <- true
+		}
+
+		wg.Wait()
+		slog.Debug("work is done", "duration", time.Since(start).Seconds())
 
 		time.Sleep(time.Minute)
 	}
@@ -151,7 +181,7 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 			})
 
 			if err != nil {
-				log.Println(err)
+				slog.Error(err.Error())
 			}
 
 			for name, price := range sample.Prices {
@@ -168,17 +198,17 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 
 			// Buffer is more than 80% full or more than 10 seconds have passed since first sample OR all samples are in
 			if processed_samples == len(app.stations) {
-				log.Printf("%d/%d samples are in, writing...", processed_samples, len(app.stations))
+				slog.Info(fmt.Sprintf("%d/%d samples are in, writing...", processed_samples, len(app.stations)))
 				break
 			}
 
 			if len(samples) >= ((cap(samples) * 8) / 10) {
-				log.Printf("Buffer is at over 80 percent capacity (%d/%d), writing...", len(samples), cap(samples))
+				slog.Info(fmt.Sprintf("Buffer is at over 80 percent capacity (%d/%d), writing...", len(samples), cap(samples)))
 				break
 			}
 
 			if time.Since(first_sample_time) > 10*time.Second {
-				log.Printf("Time since first sample exceeded 10s (%d), writing...", time.Since(first_sample_time))
+				slog.Info(fmt.Sprintf("Time since first sample exceeded 10s (%d), writing...", time.Since(first_sample_time)))
 				break
 			}
 
@@ -188,7 +218,7 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 		_, err := app.queries.CreateSamples(context.Background(), samples)
 
 		if err != nil {
-			log.Println(err)
+			slog.Error(err.Error())
 		}
 	}
 }

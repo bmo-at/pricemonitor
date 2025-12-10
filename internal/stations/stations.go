@@ -13,6 +13,7 @@ type Brand string
 
 type Station interface {
 	ScrapePrices() (Sample, error)
+	Identifier() string
 }
 
 type Sample struct {

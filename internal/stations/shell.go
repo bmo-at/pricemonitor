@@ -1430,6 +1430,10 @@ type ShellReactDataProps struct {
 	} `json:"nearby"`
 }
 
+func (s StationShell) Identifier() string {
+	return s.url
+}
+
 func (s StationShell) ScrapePrices() (Sample, error) {
 	req, err := http.NewRequest(http.MethodGet, s.url, nil)
 

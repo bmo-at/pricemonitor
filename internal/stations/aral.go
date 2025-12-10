@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,7 +22,12 @@ type StationAral struct {
 	urlAPI      string
 }
 
+func (a StationAral) Identifier() string {
+	return a.urlMainPage
+}
+
 func (a StationAral) ScrapePrices() (Sample, error) {
+retry:
 	req, err := http.NewRequest(http.MethodGet, a.urlMainPage, nil)
 
 	if err != nil {
@@ -32,6 +38,13 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not complete request for station data: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Info("status for station was not OK, retrying in 5 seconds", "station_identifier", a.Identifier())
+		time.Sleep(5 * time.Second)
+
+		goto retry
 	}
 
 	bytes, err := io.ReadAll(resp.Body)
@@ -50,22 +63,22 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 	script := htmlquery.FindOne(doc, `/html/head/script[2]/text()`)
 	if script == nil {
-		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %w", err)
+		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %s from %s", resp.Status, resp.Request.URL)
 	}
 
 	addressNode1 := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[2]/div[1]/p[1]`)
 	if addressNode1 == nil {
-		return Sample{}, fmt.Errorf("could not find first part of address in station page: %w", err)
+		return Sample{}, fmt.Errorf("could not find first part of address in station page")
 	}
 
 	addressNode2 := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[2]/div[1]/p[2]`)
 	if addressNode2 == nil {
-		return Sample{}, fmt.Errorf("could not find second part of address in station page: %w", err)
+		return Sample{}, fmt.Errorf("could not find second part of address in station page")
 	}
 
 	geolocationNode := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[3]/div/a/@href`)
 	if geolocationNode == nil {
-		return Sample{}, fmt.Errorf("could not find geolocation in station page: %w", err)
+		return Sample{}, fmt.Errorf("could not find geolocation in station page")
 	}
 
 	fuelResolutionMap := make(map[string]string)
@@ -77,7 +90,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 			}
 		}
 	}
-
+retryAPI:
 	req, err = http.NewRequest(http.MethodGet, a.urlAPI, nil)
 
 	if err != nil {
@@ -88,6 +101,13 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not complete request for price data: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Info("status for station was not OK, retrying in 5 seconds", "station_identifier", a.Identifier())
+		time.Sleep(5 * time.Second)
+
+		goto retryAPI
 	}
 
 	bytes, err = io.ReadAll(resp.Body)
