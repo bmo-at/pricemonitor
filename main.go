@@ -36,6 +36,11 @@ type Config struct {
 		Port     uint16 `default:"5432"      env:"PORT"`
 	} `env:"PRICEMONITOR_DATABASE_"`
 
+	Logger struct {
+		Level string `default:"INFO" env:"LEVEL"`
+		// Format string `default:"text" env:"FORMAT"`
+	} `env:"PRICEMONITOR_LOGGER_"`
+
 	Stations string `env:"PRICEMONITOR_STATIONS"`
 }
 
@@ -44,6 +49,10 @@ func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 
 	if err := env.Load(&app.config, nil); err != nil {
 		return nil, fmt.Errorf("could not load config: %w", err)
+	}
+
+	if app.config.Logger.Level == "debug" || app.config.Logger.Level == "DEBUG" {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
 	app.stations = make([]stations.Station, 0)
