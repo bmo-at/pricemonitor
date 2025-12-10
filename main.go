@@ -30,10 +30,11 @@ type PriceMonitorApplication struct {
 
 type Config struct {
 	Database struct {
-		User     string `default:"postgres"  env:"USER"`
-		Password string `default:"password"  env:"PASSWORD"`
-		Host     string `default:"localhost" env:"HOST"`
-		Port     uint16 `default:"5432"      env:"PORT"`
+		User         string        `default:"postgres"  env:"USER"`
+		Password     string        `default:"password"  env:"PASSWORD"`
+		Host         string        `default:"localhost" env:"HOST"`
+		Port         uint16        `default:"5432"      env:"PORT"`
+		BatchTimeout time.Duration `default:"15s"       env:"BATCH_TIMEOUT"`
 	} `env:"PRICEMONITOR_DATABASE_"`
 
 	Logger struct {
@@ -216,8 +217,8 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 				break
 			}
 
-			if time.Since(first_sample_time) > 10*time.Second {
-				slog.Info(fmt.Sprintf("Time since first sample exceeded 10s (%d), writing...", time.Since(first_sample_time)))
+			if time.Since(first_sample_time) > app.config.Database.BatchTimeout {
+				slog.Info(fmt.Sprintf("Time since first sample exceeded %s timeout (%s), writing...", app.config.Database.BatchTimeout.String(), time.Since(first_sample_time).String()))
 				break
 			}
 
