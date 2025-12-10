@@ -136,13 +136,15 @@ func main() {
 
 func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 	for {
+		processed_samples := 0
+
 		sample := <-rx
-		for name, price := range sample.Prices {
-			_, err := app.queries.CreateSampleAndStation(context.Background(), model.CreateSampleAndStationParams{
-				ID:          sample.ID,
-				FuelName:    name,
-				Price:       price,
-				Time:        sample.Time,
+		first_sample_time := time.Now()
+
+		samples := make([]model.CreateSamplesParams, 0, len(app.stations)*10)
+
+		for {
+			station_id, err := app.queries.UpsertStation(context.Background(), model.UpsertStationParams{
 				Address:     sample.Address,
 				GeoLocation: sample.GeoLocation,
 				Brand:       sample.Brand,
@@ -151,6 +153,42 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 			if err != nil {
 				log.Println(err)
 			}
+
+			for name, price := range sample.Prices {
+				samples = append(samples, model.CreateSamplesParams{
+					ID:        sample.ID,
+					FuelName:  name,
+					Price:     price,
+					Time:      sample.Time,
+					StationID: station_id,
+				})
+			}
+
+			processed_samples++
+
+			// Buffer is more than 80% full or more than 10 seconds have passed since first sample OR all samples are in
+			if processed_samples == len(app.stations) {
+				log.Printf("%d/%d samples are in, writing...", processed_samples, len(app.stations))
+				break
+			}
+
+			if len(samples) >= ((cap(samples) * 8) / 10) {
+				log.Printf("Buffer is at over 80 percent capacity (%d/%d), writing...", len(samples), cap(samples))
+				break
+			}
+
+			if time.Since(first_sample_time) > 10*time.Second {
+				log.Printf("Time since first sample exceeded 10s (%d), writing...", time.Since(first_sample_time))
+				break
+			}
+
+			sample = <-rx
+		}
+
+		_, err := app.queries.CreateSamples(context.Background(), samples)
+
+		if err != nil {
+			log.Println(err)
 		}
 	}
 }
