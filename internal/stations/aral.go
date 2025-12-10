@@ -48,7 +48,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		return Sample{}, fmt.Errorf("could not parse html for station data: %w", err)
 	}
 
-	script := htmlquery.FindOne(doc, `/html/body/script[2]/text()`)
+	script := htmlquery.FindOne(doc, `/html/head/script[2]/text()`)
 	if script == nil {
 		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %w", err)
 	}
