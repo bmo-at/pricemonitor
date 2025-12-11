@@ -37,6 +37,10 @@ type Config struct {
 		BatchTimeout time.Duration `default:"15s"       env:"BATCH_TIMEOUT"`
 	} `env:"PRICEMONITOR_DATABASE_"`
 
+	Workers struct {
+		Amount int `default:"5" env:"AMOUNT"`
+	} `env:"PRICEMONITOR_WORKERS_"`
+
 	Logger struct {
 		Level string `default:"INFO" env:"LEVEL"`
 		// Format string `default:"text" env:"FORMAT"`
@@ -133,12 +137,8 @@ func main() {
 		done := make(chan bool)
 		work := make(chan stations.Station)
 
-		for worker_id := range 5 {
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
+		for worker_id := range app.config.Workers.Amount {
+			wg.Go(func() {
 			out:
 				for {
 					select {
@@ -155,7 +155,7 @@ func main() {
 						break out
 					}
 				}
-			}()
+			})
 		}
 
 		for _, station := range app.stations {
@@ -163,7 +163,7 @@ func main() {
 			work <- station
 		}
 
-		for range 5 {
+		for range app.config.Workers.Amount {
 			done <- true
 		}
 
