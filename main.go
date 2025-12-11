@@ -5,16 +5,22 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/amirsalarsafaei/sqlc-pgx-monitoring/dbtracer"
 	"github.com/antchfx/htmlquery"
 	model "github.com/bmo-at/pricemonitor/internal/model/generated"
 	"github.com/bmo-at/pricemonitor/internal/model/migrations"
 	"github.com/bmo-at/pricemonitor/internal/stations"
 	"github.com/pressly/goose/v3"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go-simpler.org/env"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -102,7 +108,43 @@ func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	conn, err := pgx.Connect(context.Background(), dsn)
+	exporter, err := prometheus.New()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
+	}
+
+	mp := metric.NewMeterProvider(
+		metric.WithReader(exporter),
+	)
+
+	otel.SetMeterProvider(mp)
+
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			slog.Error("Metrics server error", "error", err)
+		}
+	}()
+
+	connConfig, err := pgx.ParseConfig(dsn)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse database config: %w", err)
+	}
+
+	tracer, err := dbtracer.NewDBTracer("postgres",
+		dbtracer.WithLogger(slog.Default()),
+		dbtracer.WithMeterProvider(mp),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database tracer: %w", err)
+	}
+
+	connConfig.Tracer = tracer
+
+	conn, err := pgx.ConnectConfig(context.Background(), connConfig)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
