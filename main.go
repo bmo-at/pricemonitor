@@ -144,11 +144,12 @@ func main() {
 					select {
 					case station := <-work:
 						slog.Debug("received station in worker", "station", station.Identifier(), "worker_id", worker_id)
-						sample, err := station.ScrapePrices()
-						if err != nil {
-							slog.Error(err.Error())
-						}
-						funnel <- sample
+					sample, err := station.ScrapePrices()
+					if err != nil {
+						slog.Error("scrape failed", "station", station.Identifier(), "error", err)
+						continue
+					}
+					funnel <- sample
 
 						continue
 					case <-done:
