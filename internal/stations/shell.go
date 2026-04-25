@@ -1495,7 +1495,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		Time:        time.Now(),
 		Address:     dataProps.Location.FormattedAddress,
 		GeoLocation: fmt.Sprintf("%f,%f", dataProps.Location.Lat, dataProps.Location.Lng),
-		ID:          uuid.New(),
+		ScrapeID:    uuid.New(),
 		Brand:       string(BrandShell),
 	}
 

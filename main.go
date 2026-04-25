@@ -196,7 +196,7 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 			} else {
 				for name, price := range sample.Prices {
 					samples = append(samples, model.CreateSamplesParams{
-						ID:        sample.ID,
+						ScrapeID:  sample.ScrapeID,
 						FuelName:  name,
 						Price:     price,
 						Time:      sample.Time,

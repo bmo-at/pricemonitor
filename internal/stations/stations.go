@@ -21,7 +21,7 @@ type Sample struct {
 	Time        time.Time
 	Address     string
 	GeoLocation string
-	ID          uuid.UUID
+	ScrapeID    uuid.UUID
 	Brand       string
 }
 

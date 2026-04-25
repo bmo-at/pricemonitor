@@ -169,6 +169,6 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		Address:     htmlquery.InnerText(addressNode1) + ", " + htmlquery.InnerText(addressNode2),
 		GeoLocation: strings.Split(htmlquery.InnerText(geolocationNode), "&destination=")[1],
 		Brand:       string(a.brand),
-		ID:          uuid.New(),
+		ScrapeID:    uuid.New(),
 	}, nil
 }
