@@ -192,17 +192,17 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 			})
 
 			if err != nil {
-				slog.Error(err.Error())
-			}
-
-			for name, price := range sample.Prices {
-				samples = append(samples, model.CreateSamplesParams{
-					ID:        sample.ID,
-					FuelName:  name,
-					Price:     price,
-					Time:      sample.Time,
-					StationID: station_id,
-				})
+				slog.Error("upsert station failed, dropping samples for this station", "brand", sample.Brand, "address", sample.Address, "error", err)
+			} else {
+				for name, price := range sample.Prices {
+					samples = append(samples, model.CreateSamplesParams{
+						ID:        sample.ID,
+						FuelName:  name,
+						Price:     price,
+						Time:      sample.Time,
+						StationID: station_id,
+					})
+				}
 			}
 
 			processed_samples++
