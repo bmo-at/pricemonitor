@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -1436,7 +1437,6 @@ func (s StationShell) Identifier() string {
 
 func (s StationShell) ScrapePrices() (Sample, error) {
 	req, err := http.NewRequest(http.MethodGet, s.url, nil)
-
 	if err != nil {
 		return Sample{}, err
 	}
@@ -1446,19 +1446,29 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 	}
 	insecureClient := &http.Client{Transport: insecureTransport}
 
-	resp, err := insecureClient.Do(req)
-
-	if err != nil {
-		return Sample{}, err
+	var resp *http.Response
+	for attempt := range maxRetries {
+		resp, err = insecureClient.Do(req)
+		if err != nil {
+			return Sample{}, err
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
+		resp.Body.Close()
+		if attempt == maxRetries-1 {
+			return Sample{}, fmt.Errorf("shell station returned %s after %d attempts: %s", resp.Status, maxRetries, s.Identifier())
+		}
+		delay := retryBackoff(attempt)
+		slog.Info("status for shell station was not OK, retrying", "station_identifier", s.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
+		time.Sleep(delay)
 	}
+	defer resp.Body.Close()
 
 	bytes, err := io.ReadAll(resp.Body)
-
 	if err != nil {
 		return Sample{}, err
 	}
-
-	resp.Body.Close()
 
 	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))
 

@@ -65,9 +65,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 	}
 
 	bytes, err := io.ReadAll(resp.Body)
-
-	resp.Body.Close()
-
+	resp.Body.Close() // Close regardless of ReadAll outcome
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not read station data: %w", err)
 	}
@@ -128,11 +126,9 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		slog.Info("status for price API was not OK, retrying", "station_identifier", a.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
 		time.Sleep(delay)
 	}
+	defer resp.Body.Close()
 
 	bytes, err = io.ReadAll(resp.Body)
-
-	resp.Body.Close()
-
 	if err != nil {
 		return Sample{}, fmt.Errorf("could read price data: %w", err)
 	}
