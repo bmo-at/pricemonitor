@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +15,18 @@ import (
 	"github.com/antchfx/htmlquery"
 	"github.com/google/uuid"
 )
+
+const (
+	maxRetries     = 3
+	baseRetryDelay = 2 * time.Second
+)
+
+// retryBackoff returns a jittered exponential backoff duration for the given attempt (0-indexed).
+func retryBackoff(attempt int) time.Duration {
+	backoff := float64(baseRetryDelay) * math.Pow(2, float64(attempt))
+	jitter := rand.Float64() * 0.5 * backoff
+	return time.Duration(backoff + jitter)
+}
 
 const BrandAral Brand = "aral"
 
@@ -27,24 +41,27 @@ func (a StationAral) Identifier() string {
 }
 
 func (a StationAral) ScrapePrices() (Sample, error) {
-retry:
 	req, err := http.NewRequest(http.MethodGet, a.urlMainPage, nil)
-
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not create request for station data: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-
-	if err != nil {
-		return Sample{}, fmt.Errorf("could not complete request for station data: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		slog.Info("status for station was not OK, retrying in 5 seconds", "station_identifier", a.Identifier())
-		time.Sleep(5 * time.Second)
-
-		goto retry
+	var resp *http.Response
+	for attempt := range maxRetries {
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return Sample{}, fmt.Errorf("could not complete request for station data: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
+		resp.Body.Close()
+		if attempt == maxRetries-1 {
+			return Sample{}, fmt.Errorf("station page returned %s after %d attempts: %s", resp.Status, maxRetries, a.Identifier())
+		}
+		delay := retryBackoff(attempt)
+		slog.Info("status for station was not OK, retrying", "station_identifier", a.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
+		time.Sleep(delay)
 	}
 
 	bytes, err := io.ReadAll(resp.Body)
@@ -90,24 +107,26 @@ retry:
 			}
 		}
 	}
-retryAPI:
 	req, err = http.NewRequest(http.MethodGet, a.urlAPI, nil)
-
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not create request for price data: %w", err)
 	}
 
-	resp, err = http.DefaultClient.Do(req)
-
-	if err != nil {
-		return Sample{}, fmt.Errorf("could not complete request for price data: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		slog.Info("status for station was not OK, retrying in 5 seconds", "station_identifier", a.Identifier())
-		time.Sleep(5 * time.Second)
-
-		goto retryAPI
+	for attempt := range maxRetries {
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return Sample{}, fmt.Errorf("could not complete request for price data: %w", err)
+		}
+		if resp.StatusCode == http.StatusOK {
+			break
+		}
+		resp.Body.Close()
+		if attempt == maxRetries-1 {
+			return Sample{}, fmt.Errorf("price API returned %s after %d attempts: %s", resp.Status, maxRetries, a.Identifier())
+		}
+		delay := retryBackoff(attempt)
+		slog.Info("status for price API was not OK, retrying", "station_identifier", a.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
+		time.Sleep(delay)
 	}
 
 	bytes, err = io.ReadAll(resp.Body)
