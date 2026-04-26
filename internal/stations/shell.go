@@ -1449,7 +1449,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 
 	var resp *http.Response
 
-	if err := retry.Exponential(context.TODO(), 1*time.Second, func(ctx context.Context) error {
+	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
 		var err error
 		resp, err = insecureClient.Do(req)
 
@@ -1468,7 +1468,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 	}
 
 	bytes, err := io.ReadAll(resp.Body)
-	defer resp.Body.Close()
+	resp.Body.Close()
 	if err != nil {
 		return Sample{}, err
 	}

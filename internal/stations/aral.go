@@ -51,12 +51,11 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 		return nil
 	}); err != nil {
-		return Sample{}, fmt.Errorf("station page returned %s after the maximum number of attempts (%d): %s", station_data_resp.Status, MAX_RETRIES, a.Identifier())
+		return Sample{}, fmt.Errorf("station page request for station %s did not succeed after the maximum number of attempts (%d): %w", a.Identifier(), MAX_RETRIES, err)
 	}
 
 	bytes, err := io.ReadAll(station_data_resp.Body)
-	defer station_data_resp.Body.Close()
-
+	station_data_resp.Body.Close()
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not read station data: %w", err)
 	}
@@ -69,7 +68,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 	script := htmlquery.FindOne(doc, `/html/head/script[2]/text()`)
 	if script == nil {
-		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %s from %s", station_data_resp.Status, station_data_resp.Request.URL)
+		return Sample{}, fmt.Errorf("could not find fuel names script in station page from %s", station_data_resp.Request.URL)
 	}
 
 	addressNode1 := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[2]/div[1]/p[1]`)
@@ -117,10 +116,11 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 		return nil
 	}); err != nil {
-		return Sample{}, fmt.Errorf("price API returned %s after the maximum number of attempts (%d): %s", price_data_resp.Status, MAX_RETRIES, a.Identifier())
+		return Sample{}, fmt.Errorf("price API request for station %s did not succeed after the maximum number of attempts (%d): %w", a.Identifier(), MAX_RETRIES, err)
 	}
 
 	bytes, err = io.ReadAll(price_data_resp.Body)
+	price_data_resp.Body.Close()
 	if err != nil {
 		return Sample{}, fmt.Errorf("could read price data: %w", err)
 	}
