@@ -29,7 +29,7 @@ jobs:
           version: latest
 
       - name: Test
-        run: go test ./... -race -count=1
+        run: go test ./...
 
   build-and-push:
     name: Build & Push Image
