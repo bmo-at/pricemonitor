@@ -146,11 +146,10 @@ func main() {
 						slog.Debug("received station in worker", "station", station.Identifier(), "worker_id", worker_id)
 						sample, err := station.ScrapePrices()
 						if err != nil {
-							slog.Error(err.Error())
+							slog.Error("scrape failed", "station", station.Identifier(), "error", err)
+							continue
 						}
 						funnel <- sample
-
-						continue
 					case <-done:
 						break out
 					}
@@ -191,17 +190,17 @@ func (app PriceMonitorApplication) collector(rx <-chan stations.Sample) {
 			})
 
 			if err != nil {
-				slog.Error(err.Error())
-			}
-
-			for name, price := range sample.Prices {
-				samples = append(samples, model.CreateSamplesParams{
-					ID:        sample.ID,
-					FuelName:  name,
-					Price:     price,
-					Time:      sample.Time,
-					StationID: station_id,
-				})
+				slog.Error("upsert station failed, dropping samples for this station", "brand", sample.Brand, "address", sample.Address, "error", err)
+			} else {
+				for name, price := range sample.Prices {
+					samples = append(samples, model.CreateSamplesParams{
+						ScrapeID:  sample.ScrapeID,
+						FuelName:  name,
+						Price:     price,
+						Time:      sample.Time,
+						StationID: station_id,
+					})
+				}
 			}
 
 			processed_samples++

@@ -1,10 +1,11 @@
 package stations
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/antchfx/htmlquery"
 	"github.com/google/uuid"
+	"github.com/sethvargo/go-retry"
 )
 
 const BrandAral Brand = "aral"
@@ -27,30 +29,33 @@ func (a StationAral) Identifier() string {
 }
 
 func (a StationAral) ScrapePrices() (Sample, error) {
-retry:
 	req, err := http.NewRequest(http.MethodGet, a.urlMainPage, nil)
-
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not create request for station data: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	var station_data_resp *http.Response
 
-	if err != nil {
-		return Sample{}, fmt.Errorf("could not complete request for station data: %w", err)
+	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
+		var err error
+		station_data_resp, err = http.DefaultClient.Do(req)
+
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could not complete request for station data: %w", err))
+		}
+
+		if station_data_resp.StatusCode != http.StatusOK {
+			defer station_data_resp.Body.Close()
+			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		return nil
+	}); err != nil {
+		return Sample{}, fmt.Errorf("station page request for station %s did not succeed after the maximum number of attempts (%d): %w", a.Identifier(), MAX_RETRIES, err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		slog.Info("status for station was not OK, retrying in 5 seconds", "station_identifier", a.Identifier())
-		time.Sleep(5 * time.Second)
-
-		goto retry
-	}
-
-	bytes, err := io.ReadAll(resp.Body)
-
-	resp.Body.Close()
-
+	bytes, err := io.ReadAll(station_data_resp.Body)
+	station_data_resp.Body.Close()
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not read station data: %w", err)
 	}
@@ -63,7 +68,7 @@ retry:
 
 	script := htmlquery.FindOne(doc, `/html/head/script[2]/text()`)
 	if script == nil {
-		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %s from %s", resp.Status, resp.Request.URL)
+		return Sample{}, fmt.Errorf("could not find fuel names script in station page from %s", station_data_resp.Request.URL)
 	}
 
 	addressNode1 := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[2]/div[1]/p[1]`)
@@ -90,30 +95,32 @@ retry:
 			}
 		}
 	}
-retryAPI:
 	req, err = http.NewRequest(http.MethodGet, a.urlAPI, nil)
-
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not create request for price data: %w", err)
 	}
 
-	resp, err = http.DefaultClient.Do(req)
+	var price_data_resp *http.Response
 
-	if err != nil {
-		return Sample{}, fmt.Errorf("could not complete request for price data: %w", err)
+	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
+		var err error
+		price_data_resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could not complete request for price data: %w", err))
+		}
+
+		if price_data_resp.StatusCode != http.StatusOK {
+			defer price_data_resp.Body.Close()
+			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		return nil
+	}); err != nil {
+		return Sample{}, fmt.Errorf("price API request for station %s did not succeed after the maximum number of attempts (%d): %w", a.Identifier(), MAX_RETRIES, err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		slog.Info("status for station was not OK, retrying in 5 seconds", "station_identifier", a.Identifier())
-		time.Sleep(5 * time.Second)
-
-		goto retryAPI
-	}
-
-	bytes, err = io.ReadAll(resp.Body)
-
-	resp.Body.Close()
-
+	bytes, err = io.ReadAll(price_data_resp.Body)
+	price_data_resp.Body.Close()
 	if err != nil {
 		return Sample{}, fmt.Errorf("could read price data: %w", err)
 	}
@@ -154,6 +161,6 @@ retryAPI:
 		Address:     htmlquery.InnerText(addressNode1) + ", " + htmlquery.InnerText(addressNode2),
 		GeoLocation: strings.Split(htmlquery.InnerText(geolocationNode), "&destination=")[1],
 		Brand:       string(a.brand),
-		ID:          uuid.New(),
+		ScrapeID:    uuid.New(),
 	}, nil
 }

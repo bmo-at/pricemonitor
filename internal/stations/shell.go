@@ -1,6 +1,7 @@
 package stations
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/antchfx/htmlquery"
 	"github.com/google/uuid"
+	"github.com/sethvargo/go-retry"
 )
 
 const BrandShell Brand = "shell"
@@ -1436,7 +1438,6 @@ func (s StationShell) Identifier() string {
 
 func (s StationShell) ScrapePrices() (Sample, error) {
 	req, err := http.NewRequest(http.MethodGet, s.url, nil)
-
 	if err != nil {
 		return Sample{}, err
 	}
@@ -1446,19 +1447,31 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 	}
 	insecureClient := &http.Client{Transport: insecureTransport}
 
-	resp, err := insecureClient.Do(req)
+	var resp *http.Response
 
-	if err != nil {
-		return Sample{}, err
+	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
+		var err error
+		resp, err = insecureClient.Do(req)
+
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could not complete request for price data: %w", err))
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			defer resp.Body.Close()
+			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		return nil
+	}); err != nil {
+		return Sample{}, fmt.Errorf("station page request for station %s did not succeed after the maximum number of attempts (%d): %w", s.Identifier(), MAX_RETRIES, err)
 	}
 
 	bytes, err := io.ReadAll(resp.Body)
-
+	resp.Body.Close()
 	if err != nil {
 		return Sample{}, err
 	}
-
-	resp.Body.Close()
 
 	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))
 
@@ -1485,7 +1498,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		Time:        time.Now(),
 		Address:     dataProps.Location.FormattedAddress,
 		GeoLocation: fmt.Sprintf("%f,%f", dataProps.Location.Lat, dataProps.Location.Lng),
-		ID:          uuid.New(),
+		ScrapeID:    uuid.New(),
 		Brand:       string(BrandShell),
 	}
 
