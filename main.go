@@ -150,8 +150,6 @@ func main() {
 							continue
 						}
 						funnel <- sample
-
-						continue
 					case <-done:
 						break out
 					}

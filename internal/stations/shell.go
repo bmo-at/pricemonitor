@@ -1464,7 +1464,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 
 		return nil
 	}); err != nil {
-		return Sample{}, fmt.Errorf("station page returned %s after the maximum number of attempts (%d): %s", resp.Status, MAX_RETRIES, s.Identifier())
+		return Sample{}, fmt.Errorf("station page request for station %s did not succeed after the maximum number of attempts (%d): %w", s.Identifier(), MAX_RETRIES, err)
 	}
 
 	bytes, err := io.ReadAll(resp.Body)
