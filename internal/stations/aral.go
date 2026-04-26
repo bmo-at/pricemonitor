@@ -1,12 +1,11 @@
 package stations
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"math"
-	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,19 +13,8 @@ import (
 
 	"github.com/antchfx/htmlquery"
 	"github.com/google/uuid"
+	"github.com/sethvargo/go-retry"
 )
-
-const (
-	maxRetries     = 3
-	baseRetryDelay = 2 * time.Second
-)
-
-// retryBackoff returns a jittered exponential backoff duration for the given attempt (0-indexed).
-func retryBackoff(attempt int) time.Duration {
-	backoff := float64(baseRetryDelay) * math.Pow(2, float64(attempt))
-	jitter := rand.Float64() * 0.5 * backoff
-	return time.Duration(backoff + jitter)
-}
 
 const BrandAral Brand = "aral"
 
@@ -46,26 +34,29 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		return Sample{}, fmt.Errorf("could not create request for station data: %w", err)
 	}
 
-	var resp *http.Response
-	for attempt := range maxRetries {
-		resp, err = http.DefaultClient.Do(req)
+	var station_data_resp *http.Response
+
+	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
+		var err error
+		station_data_resp, err = http.DefaultClient.Do(req)
+
 		if err != nil {
-			return Sample{}, fmt.Errorf("could not complete request for station data: %w", err)
+			return retry.RetryableError(fmt.Errorf("could not complete request for station data: %w", err))
 		}
-		if resp.StatusCode == http.StatusOK {
-			break
+
+		if station_data_resp.StatusCode != http.StatusOK {
+			defer station_data_resp.Body.Close()
+			return retry.RetryableError(errors.New("request status was not '200 OK'"))
 		}
-		resp.Body.Close()
-		if attempt == maxRetries-1 {
-			return Sample{}, fmt.Errorf("station page returned %s after %d attempts: %s", resp.Status, maxRetries, a.Identifier())
-		}
-		delay := retryBackoff(attempt)
-		slog.Info("status for station was not OK, retrying", "station_identifier", a.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
-		time.Sleep(delay)
+
+		return nil
+	}); err != nil {
+		return Sample{}, fmt.Errorf("station page returned %s after the maximum number of attempts (%d): %s", station_data_resp.Status, MAX_RETRIES, a.Identifier())
 	}
 
-	bytes, err := io.ReadAll(resp.Body)
-	resp.Body.Close() // Close regardless of ReadAll outcome
+	bytes, err := io.ReadAll(station_data_resp.Body)
+	defer station_data_resp.Body.Close()
+
 	if err != nil {
 		return Sample{}, fmt.Errorf("could not read station data: %w", err)
 	}
@@ -78,7 +69,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 	script := htmlquery.FindOne(doc, `/html/head/script[2]/text()`)
 	if script == nil {
-		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %s from %s", resp.Status, resp.Request.URL)
+		return Sample{}, fmt.Errorf("could not find fuel names script in station page: %s from %s", station_data_resp.Status, station_data_resp.Request.URL)
 	}
 
 	addressNode1 := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[2]/div[1]/p[1]`)
@@ -110,25 +101,26 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		return Sample{}, fmt.Errorf("could not create request for price data: %w", err)
 	}
 
-	for attempt := range maxRetries {
-		resp, err = http.DefaultClient.Do(req)
-		if err != nil {
-			return Sample{}, fmt.Errorf("could not complete request for price data: %w", err)
-		}
-		if resp.StatusCode == http.StatusOK {
-			break
-		}
-		resp.Body.Close()
-		if attempt == maxRetries-1 {
-			return Sample{}, fmt.Errorf("price API returned %s after %d attempts: %s", resp.Status, maxRetries, a.Identifier())
-		}
-		delay := retryBackoff(attempt)
-		slog.Info("status for price API was not OK, retrying", "station_identifier", a.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
-		time.Sleep(delay)
-	}
-	defer resp.Body.Close()
+	var price_data_resp *http.Response
 
-	bytes, err = io.ReadAll(resp.Body)
+	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
+		var err error
+		price_data_resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could not complete request for price data: %w", err))
+		}
+
+		if price_data_resp.StatusCode != http.StatusOK {
+			defer price_data_resp.Body.Close()
+			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		return nil
+	}); err != nil {
+		return Sample{}, fmt.Errorf("price API returned %s after the maximum number of attempts (%d): %s", price_data_resp.Status, MAX_RETRIES, a.Identifier())
+	}
+
+	bytes, err = io.ReadAll(price_data_resp.Body)
 	if err != nil {
 		return Sample{}, fmt.Errorf("could read price data: %w", err)
 	}

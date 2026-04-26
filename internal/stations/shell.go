@@ -1,18 +1,19 @@
 package stations
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/antchfx/htmlquery"
 	"github.com/google/uuid"
+	"github.com/sethvargo/go-retry"
 )
 
 const BrandShell Brand = "shell"
@@ -1447,25 +1448,27 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 	insecureClient := &http.Client{Transport: insecureTransport}
 
 	var resp *http.Response
-	for attempt := range maxRetries {
+
+	if err := retry.Exponential(context.TODO(), 1*time.Second, func(ctx context.Context) error {
+		var err error
 		resp, err = insecureClient.Do(req)
+
 		if err != nil {
-			return Sample{}, err
+			return retry.RetryableError(fmt.Errorf("could not complete request for price data: %w", err))
 		}
-		if resp.StatusCode == http.StatusOK {
-			break
+
+		if resp.StatusCode != http.StatusOK {
+			defer resp.Body.Close()
+			return retry.RetryableError(errors.New("request status was not '200 OK'"))
 		}
-		resp.Body.Close()
-		if attempt == maxRetries-1 {
-			return Sample{}, fmt.Errorf("shell station returned %s after %d attempts: %s", resp.Status, maxRetries, s.Identifier())
-		}
-		delay := retryBackoff(attempt)
-		slog.Info("status for shell station was not OK, retrying", "station_identifier", s.Identifier(), "status", resp.Status, "attempt", attempt+1, "delay", delay)
-		time.Sleep(delay)
+
+		return nil
+	}); err != nil {
+		return Sample{}, fmt.Errorf("station page returned %s after the maximum number of attempts (%d): %s", resp.Status, MAX_RETRIES, s.Identifier())
 	}
-	defer resp.Body.Close()
 
 	bytes, err := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
 	if err != nil {
 		return Sample{}, err
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sethvargo/go-retry"
 )
 
 type Brand string
@@ -24,6 +25,13 @@ type Sample struct {
 	ScrapeID    uuid.UUID
 	Brand       string
 }
+
+const (
+	MAX_RETRIES  uint64        = 5
+	BASE_BACKOFF time.Duration = 1 * time.Second
+)
+
+var newScrapeRetry = func() retry.Backoff { return retry.WithMaxRetries(MAX_RETRIES, retry.NewExponential(BASE_BACKOFF)) }
 
 var identifierRegex = regexp.MustCompile(`^(aral:[A-z-]+/[A-z0-9-]+/[0-9]+)|(shell:[0-9]+-[0-9A-z-]+)$`)
 
