@@ -110,7 +110,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 		bytes, err = io.ReadAll(price_data_resp.Body)
 		if err != nil {
-			return retry.RetryableError(fmt.Errorf("could read price data from respose body: %w", err))
+			return retry.RetryableError(fmt.Errorf("could not read price data from response body: %w", err))
 		}
 
 		return nil

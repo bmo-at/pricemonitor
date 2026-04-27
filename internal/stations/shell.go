@@ -1443,7 +1443,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		return Sample{}, err
 	}
 
-	// nolint:gosec // Insecure client is necessary here
+	//nolint:gosec // Insecure client is necessary here
 	insecureTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
@@ -1464,9 +1464,8 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		}
 
 		bytes, err = io.ReadAll(resp.Body)
-		resp.Body.Close()
 		if err != nil {
-			return retry.RetryableError(fmt.Errorf("could read price data from respose body: %w", err))
+			return retry.RetryableError(fmt.Errorf("could not read price data from response body: %w", err))
 		}
 
 		return nil
