@@ -67,6 +67,6 @@ func NewStation(identifier string) (Station, error) {
 			brand:       brand,
 		}, nil
 	default:
-		return nil, errors.New("Unknown brand")
+		return nil, errors.New("unknown brand")
 	}
 }
