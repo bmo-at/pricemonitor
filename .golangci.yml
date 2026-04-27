@@ -18,7 +18,14 @@ linters:
     - prealloc
 
   settings:
-    tagliatelle:
-      case:
-        rules:
-          json: snake
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+      exclude-functions:
+        - (http.Response.Body).Close
+  
+  exclusions:
+    presets:
+      - common-false-positives
+      - legacy
+      - std-error-handling
