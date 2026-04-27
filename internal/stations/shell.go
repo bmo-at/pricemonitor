@@ -54,6 +54,7 @@ func (f *fuelLocalNames) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+//nolint:tagliatelle // we do not control this, its from the shell react website
 type ShellReactDataProps struct {
 	Config struct {
 		AlwaysShowOpeningHours bool `json:"alwaysShowOpeningHours"`
@@ -1442,35 +1443,35 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		return Sample{}, err
 	}
 
+	// nolint:gosec // Insecure client is necessary here
 	insecureTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	insecureClient := &http.Client{Transport: insecureTransport}
 
-	var resp *http.Response
+	var bytes []byte
 
 	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
-		var err error
-		resp, err = insecureClient.Do(req)
+		resp, err := insecureClient.Do(req)
 
 		if err != nil {
 			return retry.RetryableError(fmt.Errorf("could not complete request for price data: %w", err))
 		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			defer resp.Body.Close()
 			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		bytes, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could read price data from respose body: %w", err))
 		}
 
 		return nil
 	}); err != nil {
 		return Sample{}, fmt.Errorf("station page request for station %s did not succeed after the maximum number of attempts (%d): %w", s.Identifier(), MAX_RETRIES, err)
-	}
-
-	bytes, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return Sample{}, err
 	}
 
 	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))

@@ -34,30 +34,27 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		return Sample{}, fmt.Errorf("could not create request for station data: %w", err)
 	}
 
-	var station_data_resp *http.Response
+	var bytes []byte
 
 	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
-		var err error
-		station_data_resp, err = http.DefaultClient.Do(req)
-
+		station_data_resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return retry.RetryableError(fmt.Errorf("could not complete request for station data: %w", err))
 		}
+		defer station_data_resp.Body.Close()
 
 		if station_data_resp.StatusCode != http.StatusOK {
-			defer station_data_resp.Body.Close()
 			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		bytes, err = io.ReadAll(station_data_resp.Body)
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could not read station data from response body: %w", err))
 		}
 
 		return nil
 	}); err != nil {
 		return Sample{}, fmt.Errorf("station page request for station %s did not succeed after the maximum number of attempts (%d): %w", a.Identifier(), MAX_RETRIES, err)
-	}
-
-	bytes, err := io.ReadAll(station_data_resp.Body)
-	station_data_resp.Body.Close()
-	if err != nil {
-		return Sample{}, fmt.Errorf("could not read station data: %w", err)
 	}
 
 	doc, err := htmlquery.Parse(strings.NewReader(string(bytes)))
@@ -68,7 +65,7 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 
 	script := htmlquery.FindOne(doc, `/html/head/script[2]/text()`)
 	if script == nil {
-		return Sample{}, fmt.Errorf("could not find fuel names script in station page from %s", station_data_resp.Request.URL)
+		return Sample{}, fmt.Errorf("could not find fuel names script in station page from %s", req.URL)
 	}
 
 	addressNode1 := htmlquery.FindOne(doc, `/html/body/main/header/div/div/div/div[2]/div[2]/div[1]/p[1]`)
@@ -100,29 +97,25 @@ func (a StationAral) ScrapePrices() (Sample, error) {
 		return Sample{}, fmt.Errorf("could not create request for price data: %w", err)
 	}
 
-	var price_data_resp *http.Response
-
 	if err := retry.Do(context.TODO(), newScrapeRetry(), func(ctx context.Context) error {
-		var err error
-		price_data_resp, err = http.DefaultClient.Do(req)
+		price_data_resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return retry.RetryableError(fmt.Errorf("could not complete request for price data: %w", err))
 		}
+		defer price_data_resp.Body.Close()
 
 		if price_data_resp.StatusCode != http.StatusOK {
-			defer price_data_resp.Body.Close()
 			return retry.RetryableError(errors.New("request status was not '200 OK'"))
+		}
+
+		bytes, err = io.ReadAll(price_data_resp.Body)
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("could read price data from respose body: %w", err))
 		}
 
 		return nil
 	}); err != nil {
 		return Sample{}, fmt.Errorf("price API request for station %s did not succeed after the maximum number of attempts (%d): %w", a.Identifier(), MAX_RETRIES, err)
-	}
-
-	bytes, err = io.ReadAll(price_data_resp.Body)
-	price_data_resp.Body.Close()
-	if err != nil {
-		return Sample{}, fmt.Errorf("could read price data: %w", err)
 	}
 
 	//nolint:tagliatelle // We do not control the json in this case
