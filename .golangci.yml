@@ -22,31 +22,3 @@ linters:
       case:
         rules:
           json: snake
-
-  exclusions:
-    rules:
-      # Shell React props struct uses camelCase JSON tags we don't control
-      - path: internal/stations/shell\.go
-        linters:
-          - tagliatelle
-
-      # Body.Close() error returns are intentionally ignored
-      - text: "Error return value of `.*Body\\.Close`"
-        linters:
-          - errcheck
-
-      # bodyclose false positives from closure-based retry pattern
-      - path: internal/stations/(aral|shell)\.go
-        linters:
-          - bodyclose
-
-      # InsecureSkipVerify is a known issue tracked for future fix
-      - text: "G402"
-        linters:
-          - gosec
-
-      # Body.Close() unhandled errors are intentional
-      - text: "G104"
-        path: internal/stations/
-        linters:
-          - gosec
