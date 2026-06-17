@@ -1596,15 +1596,15 @@ type ShellDataPage struct {
 				Href                    string `json:"href"`
 			} `json:"offers"`
 			EvCharging struct {
-				MaxPower       float32  `json:"max_power"`
+				MaxPower       string   `json:"max_power"`
 				ConnectorTypes []string `json:"connector_types"`
 				AuthMethods    []any    `json:"auth_methods"`
 				ConnectorData  []struct {
-					Type      string `json:"type"`
-					MaxPower  string `json:"max_power"`
-					Status    string `json:"status"`
-					Total     int    `json:"total"`
-					Available int    `json:"available"`
+					Type      string  `json:"type"`
+					MaxPower  float32 `json:"max_power"`
+					Status    string  `json:"status"`
+					Total     int     `json:"total"`
+					Available int     `json:"available"`
 					Pricing   []struct {
 						Type       string `json:"type"`
 						Currency   string `json:"currency"`
