@@ -905,41 +905,8 @@ type ShellDataPage struct {
 								Title        string `json:"title"`
 							} `json:"fuel_pricing"`
 							Fuels struct {
-								Title          string `json:"title"`
-								FuelLocalNames struct {
-									AutogasLpg               string `json:"autogas_lpg"`
-									AutoRvPropane            string `json:"auto_rv_propane"`
-									Biodiesel                string `json:"biodiesel"`
-									BiofuelGasoline          string `json:"biofuel_gasoline"`
-									ClearflexE85             string `json:"clearflex_e85"`
-									Cng                      string `json:"cng"`
-									DieselFit                string `json:"diesel_fit"`
-									ElectricChargingOther    string `json:"electric_charging_other"`
-									Fuelsave98               string `json:"fuelsave_98"`
-									FuelsaveMidgradeGasoline string `json:"fuelsave_midgrade_gasoline"`
-									FuelsaveRegularDiesel    string `json:"fuelsave_regular_diesel"`
-									Gtl                      string `json:"gtl"`
-									Hgo                      string `json:"hgo"`
-									Hvo100HeatingOil         string `json:"hvo100_heating_oil"`
-									Hydrogen                 string `json:"hydrogen"`
-									Kerosene                 string `json:"kerosene"`
-									Lng                      string `json:"lng"`
-									LowOctaneGasoline        string `json:"low_octane_gasoline"`
-									MidgradeGasoline         string `json:"midgrade_gasoline"`
-									PremiumDiesel            string `json:"premium_diesel"`
-									PremiumGasoline          string `json:"premium_gasoline"`
-									RegularE15               string `json:"regular_e15"`
-									Rng                      string `json:"rng"`
-									ShellBiolng              string `json:"shell_biolng"`
-									ShellHvo                 string `json:"shell_hvo"`
-									ShellRecharge            string `json:"shell_recharge"`
-									ShellRegularDiesel       string `json:"shell_regular_diesel"`
-									ShellRenewableDiesel     string `json:"shell_renewable_diesel"`
-									Super98                  string `json:"super98"`
-									SuperPremiumGasoline     string `json:"super_premium_gasoline"`
-									TruckDiesel              string `json:"truck_diesel"`
-									UnleadedSuper            string `json:"unleaded_super"`
-								} `json:"fuel_local_names"`
+								Title          string                    `json:"title"`
+								FuelLocalNames map[string]fuelLocalNames `json:"fuel_local_names"`
 							} `json:"fuels"`
 							Hydrogen struct {
 								PumpCount string `json:"pump_count"`
@@ -1493,7 +1460,7 @@ type ShellDataPage struct {
 						TruckParking    string `json:"truck_parking"`
 						Truckport       string `json:"truckport"`
 					} `json:"truck_services"`
-					FuelLocalNames map[string]string `json:"fuel_local_names"`
+					FuelLocalNames map[string]fuelLocalNames `json:"fuel_local_names"`
 				} `json:"messages"`
 				SupportedLocales []string `json:"supportedLocales"`
 			} `json:"intlData"`
@@ -1793,7 +1760,7 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 		return Sample{}, err
 	}
 
-	reactPropsNode := htmlquery.FindOne(doc, `/html/body/script`)
+	reactPropsNode := htmlquery.FindOne(doc, `//script[@data-page]`)
 
 	if reactPropsNode == nil || reactPropsNode.FirstChild == nil {
 		return Sample{}, errors.New("could not find react-data-props for extraction")
@@ -1817,17 +1784,10 @@ func (s StationShell) ScrapePrices() (Sample, error) {
 	}
 
 	for name, value := range dataPage.Props.Location.FuelPricing.Prices {
-		deRe := regexp.MustCompile(`DE\s*\{([^}]*)\}`)
-		otherRe := regexp.MustCompile(`other\s*\{([^}]*)\}`)
-		deM := deRe.FindStringSubmatch(dataPage.Props.Config.IntlData.Messages.FuelLocalNames[name])
-		otherM := otherRe.FindStringSubmatch(dataPage.Props.Config.IntlData.Messages.FuelLocalNames[name])
+		translatedName := dataPage.Props.Config.IntlData.Messages.InfoWindow.Sections.Fuels.FuelLocalNames[name]["DE"]
 
-		translatedName := "invalid fuel name"
-
-		if len(deM) == 2 {
-			translatedName = deM[1]
-		} else if len(otherM) == 2 {
-			translatedName = otherM[1]
+		if len(strings.TrimSpace(translatedName)) == 0 {
+			translatedName = dataPage.Props.Config.IntlData.Messages.InfoWindow.Sections.Fuels.FuelLocalNames[name]["other"]
 		}
 
 		result.Prices[translatedName] = float32(value)
