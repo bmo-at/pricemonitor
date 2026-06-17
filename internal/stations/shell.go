@@ -14,7 +14,6 @@ import (
 
 	"github.com/antchfx/htmlquery"
 	"github.com/google/uuid"
-	"github.com/kaptinlin/messageformat-go"
 	"github.com/sethvargo/go-retry"
 )
 
