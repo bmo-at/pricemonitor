@@ -1596,7 +1596,7 @@ type ShellDataPage struct {
 				Href                    string `json:"href"`
 			} `json:"offers"`
 			EvCharging struct {
-				MaxPower       string   `json:"max_power"`
+				MaxPower       float32  `json:"max_power"`
 				ConnectorTypes []string `json:"connector_types"`
 				AuthMethods    []any    `json:"auth_methods"`
 				ConnectorData  []struct {
