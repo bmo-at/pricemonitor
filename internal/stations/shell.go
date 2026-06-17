@@ -1595,68 +1595,6 @@ type ShellDataPage struct {
 				VideoID                 string `json:"video_id"`
 				Href                    string `json:"href"`
 			} `json:"offers"`
-			EvCharging struct {
-				MaxPower       string   `json:"max_power"`
-				ConnectorTypes []string `json:"connector_types"`
-				AuthMethods    []any    `json:"auth_methods"`
-				ConnectorData  []struct {
-					Type      string  `json:"type"`
-					MaxPower  float32 `json:"max_power"`
-					Status    string  `json:"status"`
-					Total     int     `json:"total"`
-					Available int     `json:"available"`
-					Pricing   []struct {
-						Type       string `json:"type"`
-						Currency   string `json:"currency"`
-						EnergyFees struct {
-							Unit  string `json:"unit"`
-							Price string `json:"price"`
-						} `json:"energy_fees"`
-						Elements []struct {
-							PriceComponents struct {
-								Type         string `json:"type"`
-								Price        string `json:"price"`
-								Vat          string `json:"vat"`
-								StepSize     string `json:"step_size"`
-								Restrictions struct {
-									StartTime   any    `json:"start_time"`
-									EndTime     any    `json:"end_time"`
-									StartDate   string `json:"start_date"`
-									EndDate     string `json:"end_date"`
-									MinKwh      any    `json:"min_kwh"`
-									MaxKwh      any    `json:"max_kwh"`
-									MinCurrent  any    `json:"min_current"`
-									MaxCurrent  any    `json:"max_current"`
-									MinPower    any    `json:"min_power"`
-									MaxPower    any    `json:"max_power"`
-									MinDuration int    `json:"min_duration"`
-									MaxDuration any    `json:"max_duration"`
-									DayOfWeek   []any  `json:"day_of_week"`
-								} `json:"restrictions"`
-							} `json:"price_components"`
-						} `json:"elements"`
-						SessionFeesStatement      string `json:"session_fees_statement"`
-						BlockingFeesStatement     string `json:"blocking_fees_statement"`
-						SubscriptionFeesStatement string `json:"subscription_fees_statement"`
-						Comments                  string `json:"comments"`
-						Providers                 []struct {
-							ProviderID string `json:"provider_id"`
-							PartyID    string `json:"party_id"`
-							Role       string `json:"role"`
-						} `json:"providers"`
-					} `json:"pricing"`
-				} `json:"connector_data"`
-				ChargingPoints          int       `json:"charging_points"`
-				CpoEmail                any       `json:"cpo_email"`
-				CpoTelephoneNumber      string    `json:"cpo_telephone_number"`
-				CpoWebsite              any       `json:"cpo_website"`
-				OcpiEvseIds             []string  `json:"ocpi_evse_ids"`
-				OperatorName            []string  `json:"operator_name"`
-				EvseIds                 []string  `json:"evse_ids"`
-				AvailableChargingPoints int       `json:"available_charging_points"`
-				AvailabilityUpdated     time.Time `json:"availability_updated"`
-				PricingUpdated          time.Time `json:"pricing_updated"`
-			} `json:"ev_charging"`
 			HydrogenOffering      any `json:"hydrogen_offering"`
 			ForecourtOpeningHours []struct {
 				Days  []string   `json:"days"`
