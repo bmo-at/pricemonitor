@@ -21,9 +21,10 @@ require (
 )
 
 require (
+	github.com/caarlos0/env/v11 v11.4.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/pressly/goose/v3 v3.22.1
+	github.com/samber/lo v1.53.0
 	github.com/sethvargo/go-retry v0.3.0
-	go-simpler.org/env v0.12.0
 )
