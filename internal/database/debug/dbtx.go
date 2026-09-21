@@ -36,12 +36,14 @@ func (d *DBTX) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.C
 }
 
 // Query implements [model.DBTX].
+// nolint:ireturn
 func (d *DBTX) Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error) {
 	d.logger.Debug("CopyFrom", "ctx", ctx, "sql", sql, "arguments", arguments)
 	return nil, nil
 }
 
 // QueryRow implements [model.DBTX].
+// nolint:ireturn
 func (d *DBTX) QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row {
 	d.logger.Debug("CopyFrom", "ctx", ctx, "sql", sql, "arguments", arguments)
 	return &Row{logger: d.logger}

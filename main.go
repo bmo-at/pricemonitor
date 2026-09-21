@@ -114,6 +114,7 @@ type Location struct {
 	Identifier string
 }
 
+// nolint:ireturn
 func connect(dsn string, debug bool) (model.DBTX, error) {
 	if debug {
 		return dbg.New(), nil
