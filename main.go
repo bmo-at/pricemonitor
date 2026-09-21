@@ -13,16 +13,17 @@ import (
 	model "github.com/bmo-at/pricemonitor/internal/model/generated"
 	"github.com/bmo-at/pricemonitor/internal/model/migrations"
 	"github.com/bmo-at/pricemonitor/internal/stations"
+	"github.com/caarlos0/env/v11"
 	"github.com/pressly/goose/v3"
-	"go-simpler.org/env"
 
-	"github.com/jackc/pgx/v5"
+	dbg "github.com/bmo-at/pricemonitor/internal/database/debug"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type PriceMonitorApplication struct {
 	database *sql.DB
-	pgx      *pgx.Conn
 	queries  *model.Queries
 	stations []stations.Station
 	config   Config
@@ -30,36 +31,41 @@ type PriceMonitorApplication struct {
 
 type Config struct {
 	Database struct {
-		User         string        `default:"postgres"  env:"USER"`
-		Password     string        `default:"password"  env:"PASSWORD"`
-		Host         string        `default:"localhost" env:"HOST"`
-		Port         uint16        `default:"5432"      env:"PORT"`
-		BatchTimeout time.Duration `default:"15s"       env:"BATCH_TIMEOUT"`
-	} `env:"PRICEMONITOR_DATABASE_"`
+		User         string        `envDefault:"postgres"  env:"USER"`
+		Password     string        `envDefault:"password"  env:"PASSWORD"`
+		Host         string        `envDefault:"localhost" env:"HOST"`
+		Port         uint16        `envDefault:"5432"      env:"PORT"`
+		BatchTimeout time.Duration `envDefault:"15s"       env:"BATCH_TIMEOUT"`
+		Debug        bool          `envDefault:"false" env:"DEBUG"`
+	} `envPrefix:"DATABASE_"`
 
 	Logger struct {
-		Level string `default:"INFO" env:"LEVEL"`
+		Level string `envDefault:"INFO" env:"LEVEL"`
 		// Format string `default:"text" env:"FORMAT"`
-	} `env:"PRICEMONITOR_LOGGER_"`
+	} `envPrefix:"LOGGER_"`
 
-	Stations string `env:"PRICEMONITOR_STATIONS"`
+	Stations []string `env:"STATIONS"`
 }
 
 func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 	app := new(PriceMonitorApplication)
 
-	if err := env.Load(&app.config, nil); err != nil {
+	if cfg, err := env.ParseAsWithOptions[Config](env.Options{
+		Prefix: "PRICEMONITOR_",
+	}); err != nil {
 		return nil, fmt.Errorf("could not load config: %w", err)
+	} else {
+		app.config = cfg
 	}
 
-	if app.config.Logger.Level == "debug" || app.config.Logger.Level == "DEBUG" {
+	if strings.ToUpper(app.config.Logger.Level) == "DEBUG" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
 	app.stations = make([]stations.Station, 0)
 
 	if len(app.config.Stations) > 0 {
-		for _, station := range strings.Split(app.config.Stations, ",") {
+		for _, station := range app.config.Stations {
 			station, err := stations.NewStation(station)
 
 			if err != nil {
@@ -79,39 +85,64 @@ func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
 		app.config.Database.Port,
 	)
 
-	sqlDB, err := sql.Open("pgx", dsn)
+	if !app.config.Database.Debug {
+		sqlDB, err := sql.Open("pgx", dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to database for migration: %w", err)
+		}
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		app.database = sqlDB
+
+		err = migrate(app.database)
+		if err != nil {
+			return nil, fmt.Errorf("failed to migrate database: %w", err)
+		}
 	}
 
-	app.database = sqlDB
-
-	if err := goose.SetDialect("postgres"); err != nil {
-		return nil, fmt.Errorf("unable to set dialect for database migration: %w", err)
-	}
-
-	goose.SetBaseFS(migrations.FS)
-	err = goose.Up(app.database, ".")
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
-	}
-
-	conn, err := pgx.Connect(context.Background(), dsn)
+	conn, err := connect(dsn, app.config.Database.Debug)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	app.queries = model.New(conn)
-	app.pgx = conn
 
 	return app, nil
 }
 
 type Location struct {
 	Identifier string
+}
+
+// nolint:ireturn
+func connect(dsn string, debug bool) (model.DBTX, error) {
+	if debug {
+		return dbg.New(), nil
+	}
+
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	config.MaxConns = 1
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+
+	return pool, err
+	// return pgx.Connect(context.Background(), dsn)
+}
+
+func migrate(db *sql.DB) error {
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("unable to set dialect for database migration: %w", err)
+	}
+
+	goose.SetBaseFS(migrations.FS)
+
+	err := goose.Up(db, ".")
+
+	return err
 }
 
 func main() {
@@ -137,9 +168,11 @@ func main() {
 			wg.Add(1)
 
 			go func() {
-				defer wg.Done()
-
-			out:
+				defer func() {
+					slog.Debug("returning", "worker_id", worker_id)
+					wg.Done()
+					slog.Debug("reported as done", "worker_id", worker_id)
+				}()
 				for {
 					select {
 					case station := <-work:
@@ -149,9 +182,11 @@ func main() {
 							slog.Error("scrape failed", "station", station.Identifier(), "error", err)
 							continue
 						}
+						slog.Debug("sending sample to funnel", "sample_scrape_id", sample.ScrapeID, "worker_id", worker_id, "time_elapsed", time.Since(start).String())
 						funnel <- sample
 					case <-done:
-						break out
+						slog.Debug("received done signal", "worker_id", worker_id)
+						return
 					}
 				}
 			}()
@@ -165,6 +200,7 @@ func main() {
 		for range 5 {
 			done <- true
 		}
+		slog.Debug("sent done signal")
 
 		wg.Wait()
 		slog.Debug("work is done", "duration", time.Since(start).Seconds())
