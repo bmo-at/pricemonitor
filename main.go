@@ -44,7 +44,8 @@ type Config struct {
 		// Format string `default:"text" env:"FORMAT"`
 	} `envPrefix:"LOGGER_"`
 
-	Stations []string `env:"STATIONS"`
+	WorkerCount int      `envDefault:"5" env:"WORKER_COUNT"`
+	Stations    []string `env:"STATIONS"`
 }
 
 func NewPriceMonitorApplication() (*PriceMonitorApplication, error) {
@@ -162,9 +163,9 @@ func main() {
 		start := time.Now()
 		wg := new(sync.WaitGroup)
 		done := make(chan bool)
-		work := make(chan stations.Station)
+		work := make(chan stations.Station, app.config.WorkerCount)
 
-		for worker_id := range 5 {
+		for worker_id := range app.config.WorkerCount {
 			wg.Add(1)
 
 			go func() {
@@ -197,7 +198,7 @@ func main() {
 			work <- station
 		}
 
-		for range 5 {
+		for range app.config.WorkerCount {
 			done <- true
 		}
 		slog.Debug("sent done signal")
